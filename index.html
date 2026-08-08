@@ -21,6 +21,7 @@
       </div>
       <div class="topbar-actions">
         <button class="btn btn-danger-ghost" id="btnFullReset">Reset completo</button>
+        <button class="btn btn-ghost" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnImportEmployees">Importar funcionários</button>
         <button class="btn btn-primary" id="btnImportLogs">Importar logs do dia</button>
         <input id="employeesInput" type="file" accept=".xlsx,.xls,.csv" hidden>
@@ -202,7 +203,7 @@
                 <h2>Motoristas que usaram o app</h2>
                 <span id="usedListCount">0 motoristas</span>
               </div>
-              <span class="list-badge used-badge">USANDO</span>
+              <div class="list-actions"><button class="btn btn-soft" id="exportUsed">Exportar</button><span class="list-badge used-badge">USANDO</span></div>
             </div>
             <div class="driver-list" id="usedDriversList"></div>
           </article>
@@ -212,7 +213,7 @@
                 <h2>Motoristas que ainda não usaram</h2>
                 <span id="unusedListCount">0 motoristas</span>
               </div>
-              <span class="list-badge unused-badge">SEM USO</span>
+              <div class="list-actions"><button class="btn btn-soft" id="exportUnused">Exportar</button><span class="list-badge unused-badge">SEM USO</span></div>
             </div>
             <div class="driver-list" id="unusedDriversList"></div>
           </article>
@@ -249,7 +250,7 @@
               <h2>Ranking de utilização</h2>
               <span>Motoristas ordenados pelo número de logs no dia selecionado</span>
             </div>
-            <div class="ranking-summary" id="rankingSummary"></div>
+            <div class="ranking-actions"><button class="btn btn-soft" id="exportRanking">Exportar ranking</button><div class="ranking-summary" id="rankingSummary"></div></div>
           </div>
           <div class="table-scroll tall">
             <table>
@@ -300,6 +301,7 @@
 
   <div class="toast hidden" id="toast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="app.js"></script>

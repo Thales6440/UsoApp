@@ -1,13 +1,11 @@
-const STORAGE_KEY = "fama_app_usage_history_v1";
-const EMP_KEY = "fama_app_employees_v1";
+const SUPABASE_URL = "https://tolhxaxlstbsnophypxi.supabase.co";
+const SUPABASE_KEY = "sb_publishable_cXIx-TlykFu-5CC_Ypyt6w_HxUQ0Qb_";
+const { createClient } = window.supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const state = {
-  employees: [],
-  history: {},
-  selectedDate: "",
-  pendingLogs: null,
-  historyChart: null,
-  individualChart: null
+  user:null, employees:[], history:{}, selectedDate:"",
+  pendingLogs:null, historyChart:null, individualChart:null
 };
 
 const DRIVER_ROLES = new Set([
@@ -16,403 +14,248 @@ const DRIVER_ROLES = new Set([
   normalize("MOTORISTA - VAN")
 ]);
 
-const $ = (id) => document.getElementById(id);
+function $(id){return document.getElementById(id)}
+function normalize(value){return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toUpperCase()}
+function formatDate(d){if(!d)return"—";const [y,m,day]=d.split("-");return`${day}/${m}/${y}`}
+function toDateKey(v){if(v instanceof Date&&!isNaN(v))return`${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;const s=String(v??"").trim();const m=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);if(m)return`${m[3]}-${m[2]}-${m[1]}`;const dt=new Date(s);return isNaN(dt)?"":toDateKey(dt)}
+function pct(n,d){return d?(n/d)*100:0}
+function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function showToast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(showToast.t);showToast.t=setTimeout(()=>$("toast").classList.add("hidden"),3500)}
+function historyDates(){return Object.keys(state.history).sort().reverse()}
+function currentRecord(){const d=state.selectedDate||historyDates()[0]||"";return d?state.history[d]:null}
 
-function normalize(value){
-  return String(value ?? "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/\s+/g," ").trim().toUpperCase();
-}
-function formatDate(dateKey){
-  if(!dateKey) return "—";
-  const [y,m,d] = dateKey.split("-");
-  return `${d}/${m}/${y}`;
-}
-function toDateKey(value){
-  if(value instanceof Date && !isNaN(value)){
-    const y=value.getFullYear(), m=String(value.getMonth()+1).padStart(2,"0"), d=String(value.getDate()).padStart(2,"0");
-    return `${y}-${m}-${d}`;
+async function loadCloudData(){
+  const {data:emps,error:e1}=await db.from("motoristas").select("id,matricula,nome,cargo,empresa,ativo").eq("ativo",true).order("nome");
+  if(e1) throw e1;
+  state.employees=emps||[];
+  const {data:usage,error:e2}=await db.from("uso_diario").select("motorista_id,data,quantidade_logs,primeiro_log,ultimo_log").order("data",{ascending:false});
+  if(e2) throw e2;
+  const byDate={};
+  for(const u of usage||[]){
+    if(!byDate[u.data])byDate[u.data]=[];
+    byDate[u.data].push(u);
   }
-  const s=String(value ?? "").trim();
-  const match=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
-  if(match) return `${match[3]}-${match[2]}-${match[1]}`;
-  const dt=new Date(s);
-  return isNaN(dt) ? "" : toDateKey(dt);
-}
-function pct(n,d){ return d ? (n/d)*100 : 0; }
-function esc(v){
-  return String(v ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
-function showToast(msg){
-  $("toast").textContent=msg; $("toast").classList.remove("hidden");
-  clearTimeout(showToast.t); showToast.t=setTimeout(()=>$("toast").classList.add("hidden"),3200);
-}
-function loadData(){
-  try{ state.history=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); }catch{ state.history={}; }
-  try{ state.employees=JSON.parse(localStorage.getItem(EMP_KEY)||"[]"); }catch{ state.employees=[]; }
-}
-function saveData(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.history));
-  localStorage.setItem(EMP_KEY, JSON.stringify(state.employees));
-}
-function getDriverEmployees(){
-  return state.employees.filter(e => DRIVER_ROLES.has(normalize(e.cargo)));
-}
-function historyDates(){ return Object.keys(state.history).sort().reverse(); }
-function currentRecord(){
-  if(state.selectedDate && state.history[state.selectedDate]) return state.history[state.selectedDate];
-  const d=historyDates()[0]; state.selectedDate=d||""; return d?state.history[d]:null;
+  state.history={};
+  for(const [date,rows] of Object.entries(byDate)){
+    const map=new Map(rows.map(r=>[r.motorista_id,r]));
+    const drivers=state.employees.map(e=>{const u=map.get(e.id);return{id:e.id,matricula:e.matricula,name:e.nome,cargo:e.cargo,empresa:e.empresa,used:!!u&&u.quantidade_logs>0,events:u?.quantidade_logs||0,last:u?.ultimo_log||"",first:u?.primeiro_log||""}});
+    const used=drivers.filter(d=>d.used).length;
+    state.history[date]={date,total:drivers.length,used,unused:drivers.length-used,events:drivers.reduce((s,d)=>s+d.events,0),adherence:pct(used,drivers.length),drivers};
+  }
+  state.selectedDate=state.selectedDate&&state.history[state.selectedDate]?state.selectedDate:historyDates()[0]||"";
 }
 
-function parseWorkbook(file, callback){
-  const reader=new FileReader();
-  reader.onload=e=>{
+async function importEmployees(file){
+  parseWorkbook(file,async(err,rows)=>{
+    if(err)return showToast(err.message);
     try{
-      const wb=XLSX.read(new Uint8Array(e.target.result), {type:"array", cellDates:true});
-      let rows=[];
-      for(const sheetName of wb.SheetNames){
-        const ws=wb.Sheets[sheetName];
-        const json=XLSX.utils.sheet_to_json(ws,{defval:""});
-        if(json.length) rows.push(...json);
-      }
-      callback(null,rows);
-    }catch(err){ callback(err); }
-  };
+      const mapped=rows.map(r=>({
+        matricula:String(r["MATRÍCULA"]??r["MATRICULA"]??"").trim(),
+        nome:String(r["NOME"]??"").trim(),
+        cargo:String(r["CARGO"]??"").trim(),
+        empresa:String(r["EMPRESA"]??"").trim(),
+        ativo:true
+      })).filter(e=>e.nome&&DRIVER_ROLES.has(normalize(e.cargo))&&e.matricula);
+      if(!mapped.length)return showToast("Nenhum motorista com matrícula foi encontrado.");
+      const {error}=await db.from("motoristas").upsert(mapped,{onConflict:"matricula"});
+      if(error)throw error;
+      await loadCloudData();updateUI();
+      const bus=mapped.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - ÔNIBUS")).length;
+      const micro=mapped.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - MICRO ÔNIBUS")).length;
+      const van=mapped.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - VAN")).length;
+      showToast(`${mapped.length} motoristas sincronizados: ${bus} ônibus + ${micro} micro-ônibus + ${van} vans.`);
+    }catch(e){console.error(e);showToast("Erro ao salvar funcionários: "+e.message)}
+  });
+}
+
+function parseWorkbook(file,callback){
+  const reader=new FileReader();
+  reader.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array",cellDates:true});let rows=[];for(const s of wb.SheetNames){const j=XLSX.utils.sheet_to_json(wb.Sheets[s],{defval:""});if(j.length)rows.push(...j)}callback(null,rows)}catch(err){callback(err)}};
   reader.onerror=()=>callback(new Error("Não foi possível ler o arquivo."));
   reader.readAsArrayBuffer(file);
 }
 
-function importEmployees(file){
-  parseWorkbook(file,(err,rows)=>{
-    if(err) return showToast(err.message);
-    const mapped=rows.map(r=>{
-      const get=(name)=>r[name] ?? r[Object.keys(r).find(k=>normalize(k)===normalize(name))] ?? "";
-      return {
-        id:String(get("ID")||""),
-        name:String(get("NOME")||"").trim(),
-        cargo:String(get("CARGO")||"").trim(),
-        empresa:String(get("EMPRESA")||"").trim(),
-        matricula:String(get("MATRÍCULA")||"").trim()
-      };
-    }).filter(e=>e.name && DRIVER_ROLES.has(normalize(e.cargo)));
-    if(!mapped.length) return showToast("Nenhum dos 3 cargos de motorista foi encontrado.");
-    state.employees=mapped;
-    saveData();
-    updateUI();
-    const bus=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - ÔNIBUS").length;
-    const micro=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - MICRO ÔNIBUS").length;
-    const van=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - VAN").length;
-    showToast(`${mapped.length} motoristas importados: ${bus} ônibus + ${micro} micro-ônibus + ${van} vans.`);
-  });
-}
-
 function importLogs(file){
   parseWorkbook(file,(err,rows)=>{
-    if(err) return showToast(err.message);
-    const mapped=rows.map(r=>{
-      const keys=Object.keys(r);
-      const find=(label)=>r[label] ?? r[keys.find(k=>normalize(k)===normalize(label))] ?? "";
-      return {
-        datetime:find("DATA/HORA"),
-        driver:String(find("MOTORISTA")||"").trim(),
-        action:String(find("AÇÃO")||"").trim(),
-        screen:String(find("TELA")||"").trim()
-      };
-    }).filter(x=>x.driver);
-    if(!mapped.length) return showToast("Não encontrei a coluna MOTORISTA nos logs.");
+    if(err)return showToast(err.message);
+    const mapped=rows.map(r=>({datetime:r["DATA/HORA"]||"",driver:String(r["MOTORISTA"]||"").trim(),action:String(r["AÇÃO"]||"").trim(),screen:String(r["TELA"]||"").trim()})).filter(x=>x.driver);
     const dates=[...new Set(mapped.map(x=>toDateKey(x.datetime)).filter(Boolean))].sort();
-    if(!dates.length) return showToast("Não consegui identificar a data nos logs.");
+    if(!mapped.length)return showToast("Não encontrei a coluna MOTORISTA.");
+    if(!dates.length)return showToast("Não consegui identificar a data dos logs.");
     state.pendingLogs={rows:mapped,dates};
     $("importDate").value=dates.length===1?dates[0]:"";
-    $("detectedDates").textContent=dates.length===1
-      ? `Data detectada automaticamente: ${formatDate(dates[0])}.`
-      : `Foram encontradas várias datas: ${dates.map(formatDate).join(", ")}.`;
+    $("detectedDates").textContent=dates.length===1?`Data detectada: ${formatDate(dates[0])}.`:`Datas encontradas: ${dates.map(formatDate).join(", ")}.`;
     $("dateModal").classList.remove("hidden");
   });
 }
 
-function buildSnapshot(dateKey, rows){
-  const drivers=getDriverEmployees();
-  const byName=new Map(drivers.map(d=>[normalize(d.name),d]));
-  const matched=rows.filter(r=>toDateKey(r.datetime)===dateKey && byName.has(normalize(r.driver)));
-  const counts={};
-  const last={};
-  matched.forEach(r=>{
-    const key=normalize(r.driver);
-    counts[key]=(counts[key]||0)+1;
-    const old=last[key];
-    const dt=new Date(r.datetime);
-    if(!old || (dt instanceof Date && dt>old)) last[key]=dt;
-  });
-  const driverStates=drivers.map(d=>{
-    const key=normalize(d.name);
-    return {
-      id:d.id,name:d.name,cargo:d.cargo,empresa:d.empresa,matricula:d.matricula,
-      used:!!counts[key], events:counts[key]||0,
-      last:last[key] && !isNaN(last[key]) ? last[key].toISOString() : ""
-    };
-  });
-  return {
-    date:dateKey,
-    total:drivers.length,
-    used:driverStates.filter(d=>d.used).length,
-    unused:driverStates.filter(d=>!d.used).length,
-    events:matched.length,
-    adherence:pct(driverStates.filter(d=>d.used).length,drivers.length),
-    drivers:driverStates
-  };
-}
-
-function confirmLogImport(){
-  if(!state.pendingLogs) return;
+async function confirmLogImport(){
+  if(!state.pendingLogs)return;
   const date=$("importDate").value;
-  if(!date) return showToast("Informe a data do log.");
-  if(!state.employees.length) return showToast("Importe primeiro a planilha de funcionários.");
-  const snapshot=buildSnapshot(date,state.pendingLogs.rows);
-  const existed=!!state.history[date];
-  state.history[date]=snapshot;
-  state.selectedDate=date;
-  saveData();
-  $("dateModal").classList.add("hidden");
-  updateUI();
-  showToast(existed?`Histórico de ${formatDate(date)} atualizado.`:`Dia ${formatDate(date)} adicionado ao histórico.`);
-  state.pendingLogs=null;
+  if(!date)return showToast("Informe a data do log.");
+  if(!state.employees.length)return showToast("Importe a planilha de funcionários primeiro.");
+  try{
+    const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
+    const dayRows=state.pendingLogs.rows.filter(r=>toDateKey(r.datetime)===date);
+    const matched=dayRows.map(r=>({...r,employee:byName.get(normalize(r.driver))})).filter(r=>r.employee);
+    const unknown=dayRows.filter(r=>!byName.has(normalize(r.driver)));
+    // Replace the selected day so re-importing the same file never duplicates it.
+    const {error:delU}=await db.from("uso_diario").delete().eq("data",date);
+    if(delU)throw delU;
+    const {error:delL}=await db.from("app_logs").delete().eq("data_log",date);
+    if(delL)throw delL;
+
+    const logs=matched.map(r=>({
+      motorista_id:r.employee.id,data_log:date,
+      data_hora:parseDateTime(r.datetime),nome_motorista_log:r.driver,
+      acao:r.action||null,tela:r.screen||null
+    }));
+    for(let i=0;i<logs.length;i+=500){
+      const {error}=await db.from("app_logs").insert(logs.slice(i,i+500));
+      if(error)throw error;
+    }
+
+    const grouped=new Map();
+    for(const r of matched){
+      const id=r.employee.id,dt=parseDateTime(r.datetime);
+      if(!grouped.has(id))grouped.set(id,{motorista_id:id,data:date,quantidade_logs:0,primeiro_log:dt,ultimo_log:dt});
+      const g=grouped.get(id);g.quantidade_logs++;
+      if(dt&&(!g.primeiro_log||dt<g.primeiro_log))g.primeiro_log=dt;
+      if(dt&&(!g.ultimo_log||dt>g.ultimo_log))g.ultimo_log=dt;
+    }
+    const usage=[...grouped.values()];
+    for(let i=0;i<usage.length;i+=500){
+      const {error}=await db.from("uso_diario").insert(usage.slice(i,i+500));
+      if(error)throw error;
+    }
+    await loadCloudData();updateUI();
+    $("dateModal").classList.add("hidden");state.pendingLogs=null;
+    showToast(`${matched.length} eventos salvos em ${formatDate(date)}. ${unknown.length} registros ignorados por não pertencerem à base de motoristas.`);
+  }catch(e){console.error(e);showToast("Erro ao salvar logs: "+e.message)}
 }
 
-function populateDates(){
-  const dates=historyDates();
-  const select=$("dateSelect");
-  select.innerHTML=dates.length ? dates.map(d=>`<option value="${d}">${formatDate(d)}</option>`).join("") : `<option value="">Nenhuma data importada</option>`;
-  if(state.selectedDate && dates.includes(state.selectedDate)) select.value=state.selectedDate;
-  else if(dates.length){state.selectedDate=dates[0];select.value=dates[0];}
-  else state.selectedDate="";
-}
-function populateDrivers(){
-  const select=$("driverSelect");
-  const old=select.value;
-  select.innerHTML=`<option value="">Todos os motoristas</option>`+
-    getDriverEmployees().sort((a,b)=>a.name.localeCompare(b.name,"pt-BR")).map(d=>`<option value="${esc(d.name)}">${esc(d.name)}</option>`).join("");
-  if([...select.options].some(o=>o.value===old)) select.value=old;
+function parseDateTime(v){
+  if(v instanceof Date&&!isNaN(v))return v.toISOString();
+  const s=String(v??"").trim();
+  const m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(m)return new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6]||"00"}-03:00`).toISOString();
+  const d=new Date(s);return isNaN(d) ? null : d.toISOString();
 }
 
 function renderBaseCheck(){
-  const drivers=getDriverEmployees();
-  const bus=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - ÔNIBUS")).length;
-  const micro=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - MICRO ÔNIBUS")).length;
-  const van=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - VAN")).length;
-  $("baseCheckText").textContent=drivers.length
-    ? `${drivers.length} motoristas ativos identificados na planilha. A base deve fechar em 238 + 69 + 73 = 380.`
-    : "Importe a planilha de funcionários para validar a quantidade por cargo.";
-  $("baseCheckGrid").innerHTML=[
-    ["Ônibus",bus],["Micro-ônibus",micro],["Van",van],["Total",drivers.length]
-  ].map(([label,n])=>`<div class="base-check-item"><span>${label}</span><strong>${n}</strong></div>`).join("");
+  const d=state.employees,bus=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - ÔNIBUS")).length,micro=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - MICRO ÔNIBUS")).length,van=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - VAN")).length;
+  $("baseCheckText").textContent=d.length?`${d.length} motoristas ativos no Supabase.`:"Nenhum motorista cadastrado.";
+  $("baseCheckGrid").innerHTML=[["Ônibus",bus],["Micro-ônibus",micro],["Van",van],["Total",d.length]].map(([l,n])=>`<div class="base-check-item"><span>${l}</span><strong>${n}</strong></div>`).join("");
 }
 
+function populateDates(){
+  const ds=historyDates(),sel=$("dateSelect");
+  sel.innerHTML=ds.length?ds.map(d=>`<option value="${d}">${formatDate(d)}</option>`).join(""):`<option value="">Nenhuma data importada</option>`;
+  if(state.selectedDate&&ds.includes(state.selectedDate))sel.value=state.selectedDate;else if(ds.length){state.selectedDate=ds[0];sel.value=ds[0]}else state.selectedDate="";
+}
+function populateDrivers(){
+  const sel=$("driverSelect"),old=sel.value;
+  sel.innerHTML=`<option value="">Todos os motoristas</option>`+state.employees.map(d=>`<option value="${esc(d.nome)}">${esc(d.nome)}</option>`).join("");
+  if([...sel.options].some(o=>o.value===old))sel.value=old;
+}
 function renderStats(){
-  const rec=currentRecord();
-  const total=rec?.total ?? getDriverEmployees().length;
-  const used=rec?.used ?? 0, unused=rec?.unused ?? total, events=rec?.events ?? 0, adherence=rec?.adherence ?? 0;
-  $("statAdherence").textContent=rec?`${adherence.toFixed(2)}%`:"—";
-  $("statAdherenceMeta").textContent=rec?formatDate(rec.date):"Importe os logs";
-  $("statTotal").textContent=total.toLocaleString("pt-BR");
-  $("statUsed").textContent=used.toLocaleString("pt-BR");
-  $("statUnused").textContent=unused.toLocaleString("pt-BR");
-  $("statEvents").textContent=events.toLocaleString("pt-BR");
-  $("indUsed").textContent=used.toLocaleString("pt-BR");
-  $("indAdherence").textContent=rec?`${adherence.toFixed(2)}%`:"—";
-  $("indUnused").textContent=unused.toLocaleString("pt-BR");
-  $("indTotal").textContent=total.toLocaleString("pt-BR");
-  $("indEvents").textContent=events.toLocaleString("pt-BR");
-  $("indDate").textContent=rec?formatDate(rec.date):"—";
-  const tag=$("indAdherenceTag");
-  tag.textContent=adherence>=80?"Boa":adherence>=50?"Atenção":"Crítico";
-  tag.className=`tag ${adherence>=80?"operation":adherence>=50?"action":"critical"}`;
-  const deg=Math.max(0,Math.min(100,adherence))*3.6;
-  $("donut").style.background=`conic-gradient(var(--blue) 0deg ${deg}deg, #dfe1e5 ${deg}deg 360deg)`;
-  $("donutPercent").textContent=rec?`${Math.round(adherence)}%`:"—";
-  $("dataStatus").textContent=state.employees.length?`${state.employees.length} motoristas cadastrados`:"Aguardando planilha";
+  const r=currentRecord(),total=r?.total??state.employees.length,used=r?.used??0,unused=r?.unused??total,events=r?.events??0,a=r?.adherence??0;
+  $("statAdherence").textContent=r?`${a.toFixed(2)}%`:"—";$("statAdherenceMeta").textContent=r?formatDate(r.date):"Importe os logs";
+  $("statTotal").textContent=total.toLocaleString("pt-BR");$("statUsed").textContent=used.toLocaleString("pt-BR");$("statUnused").textContent=unused.toLocaleString("pt-BR");$("statEvents").textContent=events.toLocaleString("pt-BR");
+  $("indUsed").textContent=used;$("indAdherence").textContent=r?`${a.toFixed(2)}%`:"—";$("indUnused").textContent=unused;$("indTotal").textContent=total;$("indEvents").textContent=events;$("indDate").textContent=r?formatDate(r.date):"—";
+  const tag=$("indAdherenceTag");tag.textContent=a>=80?"Boa":a>=50?"Atenção":"Crítico";tag.className=`tag ${a>=80?"operation":a>=50?"action":"critical"}`;
+  const deg=Math.max(0,Math.min(100,a))*3.6;$("donut").style.background=`conic-gradient(var(--blue) 0deg ${deg}deg,#dfe1e5 ${deg}deg 360deg)`;$("donutPercent").textContent=r?`${Math.round(a)}%`:"—";
+  $("dataStatus").textContent=`${state.employees.length} motoristas cadastrados`;
 }
-
 function renderHistoryTable(){
-  const dates=historyDates();
-  const rows=dates.map(d=>{
-    const r=state.history[d];
-    return `<tr>
-      <td><strong>${formatDate(d)}</strong></td><td>${r.total}</td><td>${r.used}</td><td>${r.unused}</td>
-      <td><strong>${r.adherence.toFixed(2)}%</strong></td><td>${r.events}</td>
-      <td><button class="btn btn-soft" onclick="selectHistoryDate('${d}')">Abrir</button></td>
-    </tr>`;
-  }).join("");
-  $("historyBody").innerHTML=rows||`<tr><td class="empty" colspan="7">Nenhum dia importado ainda.</td></tr>`;
-  $("recentHistoryBody").innerHTML=dates.slice(0,7).map(d=>{
-    const r=state.history[d];
-    return `<tr onclick="selectHistoryDate('${d}')" style="cursor:pointer"><td>${formatDate(d)}</td><td>${r.total}</td><td>${r.used}</td><td>${r.unused}</td><td>${r.adherence.toFixed(2)}%</td><td>${r.events}</td></tr>`;
-  }).join("")||`<tr><td class="empty" colspan="6">Importe os logs do primeiro dia para começar.</td></tr>`;
+  const ds=historyDates();
+  $("historyBody").innerHTML=ds.map(d=>{const r=state.history[d];return`<tr><td><strong>${formatDate(d)}</strong></td><td>${r.total}</td><td>${r.used}</td><td>${r.unused}</td><td><strong>${r.adherence.toFixed(2)}%</strong></td><td>${r.events}</td><td><button class="btn btn-soft" onclick="selectHistoryDate('${d}')">Abrir</button></td></tr>`}).join("")||`<tr><td class="empty" colspan="7">Nenhum dia importado.</td></tr>`;
+  $("recentHistoryBody").innerHTML=ds.slice(0,7).map(d=>{const r=state.history[d];return`<tr onclick="selectHistoryDate('${d}')" style="cursor:pointer"><td>${formatDate(d)}</td><td>${r.total}</td><td>${r.used}</td><td>${r.unused}</td><td>${r.adherence.toFixed(2)}%</td><td>${r.events}</td></tr>`}).join("")||`<tr><td class="empty" colspan="6">Importe os logs do primeiro dia.</td></tr>`;
 }
-
-function renderDriverLists(){
-  const rec=currentRecord();
-  const rows=rec?.drivers||getDriverEmployees().map(d=>({...d,used:false,events:0,last:""}));
-  const used=[...rows].filter(d=>d.used).sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR"));
-  const unused=[...rows].filter(d=>!d.used).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
-
-  $("usedListCount").textContent=`${used.length} motorista${used.length===1?"":"s"}`;
-  $("unusedListCount").textContent=`${unused.length} motorista${unused.length===1?"":"s"}`;
-
-  $("usedDriversList").innerHTML=used.map(d=>`
-    <div class="driver-row">
-      <div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div>
-      <div class="driver-log-count">${d.events} log${d.events===1?"":"s"}</div>
-    </div>`).join("") || `<div class="empty">Nenhum motorista usou o app neste dia.</div>`;
-
-  $("unusedDriversList").innerHTML=unused.map(d=>`
-    <div class="driver-row">
-      <div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div>
-      <div class="status unused">Sem uso</div>
-    </div>`).join("") || `<div class="empty">Todos os motoristas usaram o app neste dia.</div>`;
+function renderLists(){
+  const r=currentRecord(),rows=r?.drivers||state.employees.map(e=>({...e,name:e.nome,used:false,events:0,last:""}));
+  const used=[...rows].filter(d=>d.used).sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR")),unused=[...rows].filter(d=>!d.used).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+  $("usedListCount").textContent=`${used.length} motoristas`;$("unusedListCount").textContent=`${unused.length} motoristas`;
+  $("usedDriversList").innerHTML=used.map(d=>`<div class="driver-row"><div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div><div class="driver-log-count">${d.events} logs</div></div>`).join("")||`<div class="empty">Nenhum motorista usou o app neste dia.</div>`;
+  $("unusedDriversList").innerHTML=unused.map(d=>`<div class="driver-row"><div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div><div class="status unused">Sem uso</div></div>`).join("")||`<div class="empty">Todos usaram o app.</div>`;
 }
-
-function renderRanking(){
-  const rec=currentRecord();
-  const rows=[...(rec?.drivers||[])].sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR"));
-  const totalLogs=rows.reduce((sum,d)=>sum+d.events,0);
-  $("rankingSummary").textContent=rec?`${rows.filter(d=>d.events>0).length} usuários · ${totalLogs.toLocaleString("pt-BR")} logs`:"Sem dados";
-
-  $("rankingBody").innerHTML=rows.map((d,i)=>{
-    const share=totalLogs?pct(d.events,totalLogs):0;
-    return `<tr>
-      <td class="rank-number ${i<3?"rank-top":""}">${i+1}</td>
-      <td><strong>${esc(d.name)}</strong></td>
-      <td>${esc(d.cargo)}</td>
-      <td><strong>${d.events}</strong></td>
-      <td>${share.toFixed(2)}%</td>
-      <td><span class="status ${d.used?"used":"unused"}">${d.used?"Usando":"Sem uso"}</span></td>
-      <td>${d.last?new Date(d.last).toLocaleString("pt-BR"):"—"}</td>
-    </tr>`;
-  }).join("") || `<tr><td class="empty" colspan="7">Nenhum dado disponível.</td></tr>`;
-}
-
 function renderDrivers(){
-  const rec=currentRecord();
-  const rows=(rec?.drivers||getDriverEmployees().map(d=>({...d,used:false,events:0,last:""})));
-  const search=normalize($("driverSearch").value);
-  const status=$("driverStatusFilter").value;
-  const filtered=rows.filter(d=>{
-    const match=!search||normalize(d.name).includes(search)||normalize(d.cargo).includes(search);
-    const st=status==="all"||(status==="used"&&d.used)||(status==="unused"&&!d.used);
-    return match&&st;
-  });
-  $("driversBody").innerHTML=filtered.map(d=>`<tr>
-    <td><strong>${esc(d.name)}</strong></td><td>${esc(d.cargo)}</td><td>${esc(d.empresa||"—")}</td>
-    <td><span class="status ${d.used?"used":"unused"}">${d.used?"Usando":"Sem uso"}</span></td>
-    <td>${d.events}</td><td>${d.last?new Date(d.last).toLocaleString("pt-BR"):"—"}</td>
-  </tr>`).join("")||`<tr><td class="empty" colspan="6">Nenhum motorista encontrado.</td></tr>`;
+  const r=currentRecord(),rows=r?.drivers||state.employees.map(d=>({...d,name:d.nome,used:false,events:0,last:""})),q=normalize($("driverSearch").value),st=$("driverStatusFilter").value;
+  const f=rows.filter(d=>(!q||normalize(d.name).includes(q)||normalize(d.cargo).includes(q))&&(st==="all"||(st==="used"&&d.used)||(st==="unused"&&!d.used)));
+  $("driversBody").innerHTML=f.map(d=>`<tr><td><strong>${esc(d.name)}</strong></td><td>${esc(d.cargo)}</td><td>${esc(d.empresa||"—")}</td><td><span class="status ${d.used?"used":"unused"}">${d.used?"Usando":"Sem uso"}</span></td><td>${d.events}</td><td>${d.last?new Date(d.last).toLocaleString("pt-BR"):"—"}</td></tr>`).join("")||`<tr><td class="empty" colspan="6">Nenhum motorista.</td></tr>`;
 }
-
-function renderHistoryChart(){
-  const dates=historyDates().sort();
-  const labels=dates.map(formatDate), values=dates.map(d=>state.history[d].adherence);
-  if(state.historyChart) state.historyChart.destroy();
-  state.historyChart=new Chart($("historyChart"),{
-    type:"line",
-    data:{labels,datasets:[{label:"Adesão",data:values,borderWidth:2,tension:.35,pointRadius:3,fill:false}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}},x:{grid:{display:false}}}}
-  });
+function renderRanking(){
+  const r=currentRecord(),rows=[...(r?.drivers||[])].sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR")),total=rows.reduce((s,d)=>s+d.events,0);
+  $("rankingSummary").textContent=r?`${rows.filter(d=>d.events>0).length} usuários · ${total.toLocaleString("pt-BR")} logs`:"Sem dados";
+  $("rankingBody").innerHTML=rows.map((d,i)=>`<tr><td class="rank-number ${i<3?"rank-top":""}">${i+1}</td><td><strong>${esc(d.name)}</strong></td><td>${esc(d.cargo)}</td><td><strong>${d.events}</strong></td><td>${total?pct(d.events,total).toFixed(2):"0.00"}%</td><td><span class="status ${d.used?"used":"unused"}">${d.used?"Usando":"Sem uso"}</span></td><td>${d.last?new Date(d.last).toLocaleString("pt-BR"):"—"}</td></tr>`).join("")||`<tr><td class="empty" colspan="7">Sem dados.</td></tr>`;
 }
-
+function renderCharts(){
+  const ds=historyDates().sort(),labels=ds.map(formatDate),values=ds.map(d=>state.history[d].adherence);
+  if(state.historyChart)state.historyChart.destroy();
+  state.historyChart=new Chart($("historyChart"),{type:"line",data:{labels,datasets:[{label:"Adesão",data:values,borderWidth:2,tension:.35,pointRadius:3,fill:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}},x:{grid:{display:false}}}}});
+}
 function renderIndividual(){
-  const selected=$("driverSelect").value;
-  const rec=currentRecord();
-  if(!selected){
-    $("individualTitle").textContent="Selecione um motorista";
-    $("individualSubtitle").textContent="Use o filtro acima para acompanhar a evolução individual.";
-    $("individualSummary").innerHTML="";
-    if(state.individualChart) state.individualChart.destroy();
-    return;
-  }
-  const key=normalize(selected);
-  const dates=historyDates().sort();
-  const person=state.employees.find(e=>normalize(e.name)===key);
-  const series=dates.map(d=>state.history[d].drivers.find(x=>normalize(x.name)===key)?.used?1:0);
-  const events=dates.map(d=>state.history[d].drivers.find(x=>normalize(x.name)===key)?.events||0);
-  const daysUsed=series.filter(Boolean).length;
-  $("individualTitle").textContent=person?.name||selected;
-  $("individualSubtitle").textContent=person?`${person.cargo} · ${person.empresa||"Empresa não informada"}`:"";
-  $("individualSummary").innerHTML=[
-    ["Dias usando",daysUsed],["Dias sem uso",Math.max(0,dates.length-daysUsed)],["Adesão individual",dates.length?((daysUsed/dates.length)*100).toFixed(1)+"%":"—"],["Eventos no histórico",events.reduce((a,b)=>a+b,0)]
-  ].map(x=>`<div class="individual-box"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join("");
-  if(state.individualChart) state.individualChart.destroy();
-  state.individualChart=new Chart($("individualChart"),{
-    type:"bar",
-    data:{labels:dates.map(formatDate),datasets:[{label:"Uso do app",data:series.map(v=>v*100),borderWidth:1}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}}}}
-  });
+  const selected=$("driverSelect").value,ds=historyDates().sort();
+  if(!selected){$("individualTitle").textContent="Selecione um motorista";$("individualSubtitle").textContent="Use o filtro acima para acompanhar a evolução individual."; $("individualSummary").innerHTML="";if(state.individualChart)state.individualChart.destroy();return}
+  const key=normalize(selected),person=state.employees.find(e=>normalize(e.nome)===key),series=ds.map(d=>state.history[d].drivers.find(x=>normalize(x.name)===key)?.used?1:0),events=ds.map(d=>state.history[d].drivers.find(x=>normalize(x.name)===key)?.events||0),used=series.filter(Boolean).length;
+  $("individualTitle").textContent=person?.nome||selected;$("individualSubtitle").textContent=person?`${person.cargo} · ${person.empresa||"Empresa não informada"}`:"";
+  $("individualSummary").innerHTML=[["Dias usando",used],["Dias sem uso",Math.max(0,ds.length-used)],["Adesão individual",ds.length?((used/ds.length)*100).toFixed(1)+"%":"—"],["Eventos no histórico",events.reduce((a,b)=>a+b,0)]].map(x=>`<div class="individual-box"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join("");
+  if(state.individualChart)state.individualChart.destroy();
+  state.individualChart=new Chart($("individualChart"),{type:"bar",data:{labels:ds.map(formatDate),datasets:[{label:"Uso do app",data:series.map(v=>v*100),borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:v=>v+"%"}}}}});
 }
 
-function updateUI(){
-  loadData();
-  populateDates(); populateDrivers(); renderBaseCheck(); renderStats(); renderHistoryTable(); renderDrivers(); renderDriverLists(); renderRanking(); renderHistoryChart(); renderIndividual();
+function csvDownload(filename,rows){
+  const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(";")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=filename;a.click();URL.revokeObjectURL(a.href);
+}
+function exportList(kind){
+  const r=currentRecord();if(!r)return showToast("Selecione um dia com dados.");
+  const rows=r.drivers.filter(d=>kind==="used"?d.used:!d.used).sort((a,b)=>kind==="used"?b.events-a.events:a.name.localeCompare(b.name,"pt-BR"));
+  csvDownload(`${kind==="used"?"motoristas_usando":"motoristas_sem_uso"}_${r.date}.csv`,[["Motorista","Matrícula","Cargo","Empresa","Logs","Último registro"],...rows.map(d=>[d.name,d.matricula,d.cargo,d.empresa,d.events,d.last?new Date(d.last).toLocaleString("pt-BR"):""])]);
+}
+function exportRanking(){
+  const r=currentRecord();if(!r)return showToast("Selecione um dia com dados.");
+  const rows=[...r.drivers].sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR")),total=r.events;
+  csvDownload(`ranking_logs_${r.date}.csv`,[["Ranking","Motorista","Matrícula","Cargo","Empresa","Logs","% dos logs","Status","Último registro"],...rows.map((d,i)=>[i+1,d.name,d.matricula,d.cargo,d.empresa,d.events,total?pct(d.events,total).toFixed(2)+"%":"0.00%",d.used?"Usando":"Sem uso",d.last?new Date(d.last).toLocaleString("pt-BR"):""])]);
+}
+function activateTab(n){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===n));document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${n}`))}
+function updateUI(){populateDates();populateDrivers();renderBaseCheck();renderStats();renderHistoryTable();renderLists();renderDrivers();renderRanking();renderCharts();renderIndividual()}
+window.selectHistoryDate=d=>{state.selectedDate=d;$("dateSelect").value=d;updateUI();activateTab("overview")};
+
+async function fullReset(){
+  if(!confirm("RESET COMPLETO\n\nIsso apagará motoristas, logs e histórico do Supabase para todos os usuários.\n\nDeseja continuar?"))return;
+  if(prompt("Digite RESET para confirmar:")!=="RESET")return;
+  try{
+    const {error:e1}=await db.from("app_logs").delete().not("id","is",null);if(e1)throw e1;
+    const {error:e2}=await db.from("uso_diario").delete().not("id","is",null);if(e2)throw e2;
+    const {error:e3}=await db.from("motoristas").delete().not("id","is",null);if(e3)throw e3;
+    await loadCloudData();updateUI();showToast("Reset completo realizado no banco.");
+  }catch(e){console.error(e);showToast("Erro no reset: "+e.message)}
 }
 
-window.selectHistoryDate=(date)=>{
-  state.selectedDate=date;
-  $("dateSelect").value=date;
-  updateUI();
-  activateTab("overview");
-};
-
-function activateTab(name){
-  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
-  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${name}`));
+async function startApp(){
+  const {data:{session}}=await db.auth.getSession();
+  if(session){state.user=session.user;$("loginScreen").classList.add("hidden");try{await loadCloudData();updateUI()}catch(e){console.error(e);showToast("Erro ao carregar Supabase: "+e.message)}}
+  else {$("loginScreen").classList.remove("hidden")}
 }
+db.auth.onAuthStateChange((event,session)=>{
+  if(session){state.user=session.user;$("loginScreen").classList.add("hidden");setTimeout(async()=>{try{await loadCloudData();updateUI()}catch(e){showToast(e.message)}},0)}
+  else{state.user=null;$("loginScreen").classList.remove("hidden")}
+});
 
-function fullReset(){
-  const confirmed=confirm(
-    "RESET COMPLETO\n\nIsso vai apagar a base de funcionários, todos os logs processados e todo o histórico deste navegador.\n\nDepois você poderá importar novamente a planilha correta.\n\nDeseja continuar?"
-  );
-  if(!confirmed) return;
-  const typed=prompt('Para confirmar, digite: RESET');
-  if(typed!=="RESET") return showToast("Reset cancelado.");
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(EMP_KEY);
-  state.employees=[];
-  state.history={};
-  state.selectedDate="";
-  state.pendingLogs=null;
-  updateUI();
-  showToast("Reset completo realizado. Importe a planilha de funcionários novamente.");
-}
-
-function exportHistoryCSV(){
-  const rows=[["Data","Total motoristas","Usando","Sem uso","Adesão","Eventos"]];
-  historyDates().sort().forEach(d=>{const r=state.history[d];rows.push([d,r.total,r.used,r.unused,r.adherence.toFixed(2),r.events]);});
-  const csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(";")).join("\n");
-  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="historico_adesao_motoristas.csv";a.click();URL.revokeObjectURL(a.href);
-}
-
-$("btnFullReset").onclick=fullReset;
+$("loginForm").onsubmit=async e=>{e.preventDefault();$("loginError").textContent="Entrando...";const {error}=await db.auth.signInWithPassword({email:$("loginEmail").value.trim(),password:$("loginPassword").value});$("loginError").textContent=error?error.message:"";if(!error)showToast("Login realizado.")};
+$("btnLogout").onclick=async()=>{await db.auth.signOut()};
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
-$("employeesInput").onchange=e=>{if(e.target.files[0]) importEmployees(e.target.files[0]);e.target.value=""};
-$("logsInput").onchange=e=>{if(e.target.files[0]) importLogs(e.target.files[0]);e.target.value=""};
-$("confirmImport").onclick=confirmLogImport;
-$("cancelImport").onclick=()=>{$("dateModal").classList.add("hidden");state.pendingLogs=null};
-$("closeModal").onclick=()=>{$("dateModal").classList.add("hidden");state.pendingLogs=null};
+$("employeesInput").onchange=e=>{if(e.target.files[0])importEmployees(e.target.files[0]);e.target.value=""};
+$("logsInput").onchange=e=>{if(e.target.files[0])importLogs(e.target.files[0]);e.target.value=""};
+$("confirmImport").onclick=confirmLogImport;$("cancelImport").onclick=()=>{$("dateModal").classList.add("hidden");state.pendingLogs=null};$("closeModal").onclick=()=>{$("dateModal").classList.add("hidden");state.pendingLogs=null};
 $("dateSelect").onchange=e=>{state.selectedDate=e.target.value;updateUI()};
 $("driverSelect").onchange=()=>{renderIndividual();activateTab("individual")};
-$("driverSearch").oninput=renderDrivers;
-$("driverStatusFilter").onchange=renderDrivers;
-$("btnExportHistory").onclick=exportHistoryCSV;
-$("periodSelect").onchange=e=>{
-  if(e.target.value==="all"){state.selectedDate=historyDates().sort()[0]||""}else{state.selectedDate=historyDates()[0]||""}
-  updateUI();
-};
-$("btnClearHistory").onclick=()=>{
-  if(!confirm("Apagar todo o histórico salvo neste navegador?")) return;
-  localStorage.removeItem(STORAGE_KEY);state.history={};state.selectedDate="";updateUI();showToast("Histórico apagado.");
-};
-document.querySelectorAll(".tab").forEach(btn=>btn.addEventListener("click",()=>activateTab(btn.dataset.tab)));
-
-loadData();
-updateUI();
+$("driverSearch").oninput=renderDrivers;$("driverStatusFilter").onchange=renderDrivers;
+$("btnExportHistory").onclick=()=>{const rows=[["Data","Total","Usando","Sem uso","Adesão","Eventos"],...historyDates().sort().map(d=>{const r=state.history[d];return[d,r.total,r.used,r.unused,r.adherence.toFixed(2)+"%",r.events]})];csvDownload("historico_adesao_motoristas.csv",rows)};
+$("exportUsed").onclick=()=>exportList("used");$("exportUnused").onclick=()=>exportList("unused");$("exportRanking").onclick=exportRanking;
+$("btnFullReset").onclick=fullReset;
+$("periodSelect").onchange=e=>{state.selectedDate=historyDates().sort()[e.target.value==="all"?0:Math.max(0,historyDates().length-1)]||"";updateUI()};
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.tab)));
+startApp();
