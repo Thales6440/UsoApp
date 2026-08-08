@@ -233,18 +233,117 @@ async function fullReset(){
   }catch(e){console.error(e);showToast("Erro no reset: "+e.message)}
 }
 
-async function startApp(){
-  const {data:{session}}=await db.auth.getSession();
-  if(session){state.user=session.user;$("loginScreen").classList.add("hidden");try{await loadCloudData();updateUI()}catch(e){console.error(e);showToast("Erro ao carregar Supabase: "+e.message)}}
-  else {$("loginScreen").classList.remove("hidden")}
+function setAuthView(session){
+  const loginScreen=$("loginScreen");
+  const appShell=document.querySelector(".app-shell");
+  if(session){
+    state.user=session.user;
+    loginScreen.classList.add("hidden");
+    appShell.classList.remove("auth-hidden");
+  }else{
+    state.user=null;
+    state.employees=[];
+    state.history={};
+    state.selectedDate="";
+    appShell.classList.add("auth-hidden");
+    loginScreen.classList.remove("hidden");
+  }
 }
+
+async function startApp(){
+  const {data,error}=await db.auth.getSession();
+  if(error){
+    console.error(error);
+    $("loginError").textContent=error.message;
+    setAuthView(null);
+    return;
+  }
+  if(data.session){
+    setAuthView(data.session);
+    try{
+      await loadCloudData();
+      updateUI();
+    }catch(e){
+      console.error(e);
+      showToast("Erro ao carregar Supabase: "+e.message);
+    }
+  }else{
+    setAuthView(null);
+  }
+}
+
 db.auth.onAuthStateChange((event,session)=>{
-  if(session){state.user=session.user;$("loginScreen").classList.add("hidden");setTimeout(async()=>{try{await loadCloudData();updateUI()}catch(e){showToast(e.message)}},0)}
-  else{state.user=null;$("loginScreen").classList.remove("hidden")}
+  if(event==="SIGNED_OUT"){
+    setAuthView(null);
+    $("loginEmail").value="";
+    $("loginPassword").value="";
+    $("loginError").textContent="";
+    return;
+  }
+
+  if(session){
+    setAuthView(session);
+    setTimeout(async()=>{
+      try{
+        await loadCloudData();
+        updateUI();
+      }catch(e){
+        console.error(e);
+        showToast("Erro ao carregar Supabase: "+e.message);
+      }
+    },0);
+  }else{
+    setAuthView(null);
+  }
 });
 
-$("loginForm").onsubmit=async e=>{e.preventDefault();$("loginError").textContent="Entrando...";const {error}=await db.auth.signInWithPassword({email:$("loginEmail").value.trim(),password:$("loginPassword").value});$("loginError").textContent=error?error.message:"";if(!error)showToast("Login realizado.")};
-$("btnLogout").onclick=async()=>{await db.auth.signOut()};
+$("loginForm").onsubmit=async e=>{
+  e.preventDefault();
+  const email=$("loginEmail").value.trim();
+  const password=$("loginPassword").value;
+  const errorBox=$("loginError");
+  const button=$("loginSubmit");
+
+  errorBox.textContent="Entrando...";
+  button.disabled=true;
+
+  try{
+    const {error}=await db.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    errorBox.textContent="";
+    showToast("Login realizado.");
+  }catch(error){
+    console.error(error);
+    errorBox.textContent=error.message||"Não foi possível entrar.";
+  }finally{
+    button.disabled=false;
+  }
+};
+
+$("btnLogout").onclick=async()=>{
+  const button=$("btnLogout");
+  button.disabled=true;
+  button.textContent="Saindo...";
+
+  try{
+    const {error}=await db.auth.signOut({scope:"local"});
+    if(error) throw error;
+
+    // Fallback explícito caso o listener demore a atualizar a interface.
+    setAuthView(null);
+    $("loginEmail").value="";
+    $("loginPassword").value="";
+    $("loginError").textContent="";
+    showToast("Sessão encerrada.");
+  }catch(error){
+    console.error(error);
+    showToast("Erro ao sair: "+(error.message||"não foi possível encerrar a sessão."));
+  }finally{
+    button.disabled=false;
+    button.textContent="Sair";
+  }
+};
+
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
 $("employeesInput").onchange=e=>{if(e.target.files[0])importEmployees(e.target.files[0]);e.target.value=""};

@@ -10,6 +10,31 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+  <section class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>FamaTur</strong>
+          <span>Dashboard de adesão ao aplicativo</span>
+        </div>
+      </div>
+      <div class="login-copy">
+        <h1>Acesso ao dashboard</h1>
+        <p>Entre com seu usuário para acessar os dados centralizados.</p>
+      </div>
+      <form id="loginForm">
+        <label>E-mail</label>
+        <input id="loginEmail" type="email" autocomplete="username" required placeholder="seu@email.com">
+        <label>Senha</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Sua senha">
+        <button class="btn btn-primary login-submit" id="loginSubmit" type="submit">Entrar</button>
+        <div class="login-error" id="loginError"></div>
+      </form>
+    </div>
+  </section>
+
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
