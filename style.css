@@ -46,3 +46,6 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 .rank-number{font-weight:700;color:#707680}
 .rank-top{font-weight:700}
 @media(max-width:800px){.lists-grid{grid-template-columns:1fr}}
+
+.btn-danger-ghost{background:#fff7f7;color:#c33d3d;border-color:#ffd1d1}
+.btn-danger-ghost:hover{background:#fff0f0;border-color:#ffb8b8}

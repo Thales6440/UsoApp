@@ -20,6 +20,7 @@
         </div>
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-danger-ghost" id="btnFullReset">Reset completo</button>
         <button class="btn btn-ghost" id="btnImportEmployees">Importar funcionários</button>
         <button class="btn btn-primary" id="btnImportLogs">Importar logs do dia</button>
         <input id="employeesInput" type="file" accept=".xlsx,.xls,.csv" hidden>
@@ -86,6 +87,7 @@
       </section>
 
       <div class="notice" id="importNotice">
+        <strong>Base de motoristas:</strong> o sistema considera os 3 cargos definidos e mostra a soma de todos eles. Exemplo: 238 ônibus + 69 micro-ônibus + 73 vans = 380 motoristas.<br><br>
         <strong>Como funciona:</strong> importe a planilha de funcionários uma vez e depois importe os logs de cada dia.
         O sistema considera somente <strong>MOTORISTA - ÔNIBUS</strong>, <strong>MOTORISTA - MICRO ÔNIBUS</strong> e <strong>MOTORISTA - VAN</strong>.
         Um motorista é considerado usuário no dia quando seu nome aparece pelo menos uma vez nos logs.

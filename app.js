@@ -99,7 +99,10 @@ function importEmployees(file){
     state.employees=mapped;
     saveData();
     updateUI();
-    showToast(`${mapped.length} motoristas importados com sucesso.`);
+    const bus=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - ÔNIBUS").length;
+    const micro=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - MICRO ÔNIBUS").length;
+    const van=mapped.filter(e=>normalize(e.cargo)==="MOTORISTA - VAN").length;
+    showToast(`${mapped.length} motoristas importados: ${bus} ônibus + ${micro} micro-ônibus + ${van} vans.`);
   });
 }
 
@@ -350,6 +353,23 @@ function activateTab(name){
   document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${name}`));
 }
 
+function fullReset(){
+  const confirmed=confirm(
+    "RESET COMPLETO\n\nIsso vai apagar a base de funcionários, todos os logs processados e todo o histórico deste navegador.\n\nDepois você poderá importar novamente a planilha correta.\n\nDeseja continuar?"
+  );
+  if(!confirmed) return;
+  const typed=prompt('Para confirmar, digite: RESET');
+  if(typed!=="RESET") return showToast("Reset cancelado.");
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(EMP_KEY);
+  state.employees=[];
+  state.history={};
+  state.selectedDate="";
+  state.pendingLogs=null;
+  updateUI();
+  showToast("Reset completo realizado. Importe a planilha de funcionários novamente.");
+}
+
 function exportHistoryCSV(){
   const rows=[["Data","Total motoristas","Usando","Sem uso","Adesão","Eventos"]];
   historyDates().sort().forEach(d=>{const r=state.history[d];rows.push([d,r.total,r.used,r.unused,r.adherence.toFixed(2),r.events]);});
@@ -358,6 +378,7 @@ function exportHistoryCSV(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="historico_adesao_motoristas.csv";a.click();URL.revokeObjectURL(a.href);
 }
 
+$("btnFullReset").onclick=fullReset;
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
 $("employeesInput").onchange=e=>{if(e.target.files[0]) importEmployees(e.target.files[0]);e.target.value=""};
