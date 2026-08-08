@@ -11,9 +11,9 @@ const state = {
 };
 
 const DRIVER_ROLES = new Set([
-  "MOTORISTA - ÔNIBUS",
-  "MOTORISTA - MICRO ÔNIBUS",
-  "MOTORISTA - VAN"
+  normalize("MOTORISTA - ÔNIBUS"),
+  normalize("MOTORISTA - MICRO ÔNIBUS"),
+  normalize("MOTORISTA - VAN")
 ]);
 
 const $ = (id) => document.getElementById(id);
@@ -195,6 +195,19 @@ function populateDrivers(){
   if([...select.options].some(o=>o.value===old)) select.value=old;
 }
 
+function renderBaseCheck(){
+  const drivers=getDriverEmployees();
+  const bus=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - ÔNIBUS")).length;
+  const micro=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - MICRO ÔNIBUS")).length;
+  const van=drivers.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - VAN")).length;
+  $("baseCheckText").textContent=drivers.length
+    ? `${drivers.length} motoristas ativos identificados na planilha. A base deve fechar em 238 + 69 + 73 = 380.`
+    : "Importe a planilha de funcionários para validar a quantidade por cargo.";
+  $("baseCheckGrid").innerHTML=[
+    ["Ônibus",bus],["Micro-ônibus",micro],["Van",van],["Total",drivers.length]
+  ].map(([label,n])=>`<div class="base-check-item"><span>${label}</span><strong>${n}</strong></div>`).join("");
+}
+
 function renderStats(){
   const rec=currentRecord();
   const total=rec?.total ?? getDriverEmployees().length;
@@ -338,7 +351,7 @@ function renderIndividual(){
 
 function updateUI(){
   loadData();
-  populateDates(); populateDrivers(); renderStats(); renderHistoryTable(); renderDrivers(); renderDriverLists(); renderRanking(); renderHistoryChart(); renderIndividual();
+  populateDates(); populateDrivers(); renderBaseCheck(); renderStats(); renderHistoryTable(); renderDrivers(); renderDriverLists(); renderRanking(); renderHistoryChart(); renderIndividual();
 }
 
 window.selectHistoryDate=(date)=>{

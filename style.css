@@ -49,3 +49,10 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 
 .btn-danger-ghost{background:#fff7f7;color:#c33d3d;border-color:#ffd1d1}
 .btn-danger-ghost:hover{background:#fff0f0;border-color:#ffb8b8}
+
+.base-check{padding:12px 15px;margin-bottom:10px;display:flex;justify-content:space-between;gap:20px;align-items:center}
+.base-check strong{display:block;font-size:11px;margin-bottom:4px}.base-check span{font-size:9px;color:var(--muted)}
+.base-check-grid{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.base-check-item{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fafbfc;min-width:105px}
+.base-check-item span{display:block;font-size:8px;color:var(--muted)}.base-check-item strong{font-size:12px;margin:2px 0 0}
+@media(max-width:800px){.base-check{align-items:flex-start;flex-direction:column}.base-check-grid{justify-content:flex-start}}
