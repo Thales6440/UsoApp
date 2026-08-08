@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FamaTur · Adesão ao Aplicativo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <strong>FamaTur</strong>
+          <span>Dashboard de adesão ao aplicativo</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btnImportEmployees">Importar funcionários</button>
+        <button class="btn btn-primary" id="btnImportLogs">Importar logs do dia</button>
+        <input id="employeesInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+        <input id="logsInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+      </div>
+    </header>
+
+    <main>
+      <section class="section-heading">
+        <div>
+          <h1>Resumo da utilização</h1>
+          <p>Compare os motoristas cadastrados com os motoristas que aparecem nos logs do aplicativo.</p>
+        </div>
+        <div class="status-pill" id="dataStatus">Aguardando dados</div>
+      </section>
+
+      <section class="period-bar card">
+        <div class="field">
+          <label>Visualizar</label>
+          <select id="periodSelect">
+            <option value="latest">Período mais recente</option>
+            <option value="all">Histórico completo</option>
+          </select>
+        </div>
+        <div class="field grow">
+          <label>Dia analisado</label>
+          <select id="dateSelect"></select>
+        </div>
+        <div class="field">
+          <label>Motorista</label>
+          <select id="driverSelect">
+            <option value="">Todos os motoristas</option>
+          </select>
+        </div>
+        <button class="btn btn-soft" id="btnClearHistory">Limpar histórico</button>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <div class="stat-label">Adesão atual <span>↗</span></div>
+          <div class="stat-value" id="statAdherence">—</div>
+          <div class="stat-meta" id="statAdherenceMeta">Sem dados</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Motoristas <span>◎</span></div>
+          <div class="stat-value" id="statTotal">—</div>
+          <div class="stat-meta">Cargos de motorista</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Usando o app <span>✓</span></div>
+          <div class="stat-value" id="statUsed">—</div>
+          <div class="stat-meta">Com pelo menos 1 registro</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Sem uso <span>×</span></div>
+          <div class="stat-value" id="statUnused">—</div>
+          <div class="stat-meta">Precisam de ação</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Eventos registrados <span>≡</span></div>
+          <div class="stat-value" id="statEvents">—</div>
+          <div class="stat-meta">Eventos nos logs importados</div>
+        </article>
+      </section>
+
+      <div class="notice" id="importNotice">
+        <strong>Como funciona:</strong> importe a planilha de funcionários uma vez e depois importe os logs de cada dia.
+        O sistema considera somente <strong>MOTORISTA - ÔNIBUS</strong>, <strong>MOTORISTA - MICRO ÔNIBUS</strong> e <strong>MOTORISTA - VAN</strong>.
+        Um motorista é considerado usuário no dia quando seu nome aparece pelo menos uma vez nos logs.
+      </div>
+
+      <section class="two-col">
+        <article class="card chart-card">
+          <div class="card-title">
+            <div>
+              <h2>Adesão dos motoristas</h2>
+              <span>Usando o app x sem uso</span>
+            </div>
+          </div>
+          <div class="donut-wrap">
+            <div class="donut" id="donut">
+              <div>
+                <strong id="donutPercent">—</strong>
+                <span>usando o app</span>
+              </div>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i class="dot used"></i>Usando</span>
+            <span><i class="dot unused"></i>Sem uso</span>
+          </div>
+        </article>
+
+        <article class="card indicator-card">
+          <div class="card-title">
+            <div>
+              <h2>Indicadores consolidados</h2>
+              <span>Leitura rápida do período selecionado</span>
+            </div>
+          </div>
+          <div class="indicator-list">
+            <div><span>Motoristas usando o app</span><strong id="indUsed">—</strong><em class="tag neutral">Em andamento</em></div>
+            <div><span>Adesão de motoristas</span><strong id="indAdherence">—</strong><em class="tag critical" id="indAdherenceTag">—</em></div>
+            <div><span>Motoristas sem uso</span><strong id="indUnused">—</strong><em class="tag action">Necessário ação</em></div>
+            <div><span>Total de motoristas</span><strong id="indTotal">—</strong><em class="tag base">Base total</em></div>
+            <div><span>Eventos registrados</span><strong id="indEvents">—</strong><em class="tag operation">Operação</em></div>
+            <div><span>Data analisada</span><strong id="indDate">—</strong><em class="tag planned">Histórico</em></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="tabs card">
+        <button class="tab active" data-tab="overview">Visão do período</button>
+        <button class="tab" data-tab="history">Histórico</button>
+        <button class="tab" data-tab="drivers">Motoristas</button>
+        <button class="tab" data-tab="individual">Motorista selecionado</button>
+      </section>
+
+      <section class="tab-panel active" id="panel-overview">
+        <article class="card large-chart">
+          <div class="card-title">
+            <div>
+              <h2>Progressão de adesão</h2>
+              <span>Percentual de motoristas que utilizaram o app em cada dia importado</span>
+            </div>
+          </div>
+          <div class="chart-area"><canvas id="historyChart"></canvas></div>
+        </article>
+
+        <article class="card table-card">
+          <div class="card-title">
+            <div>
+              <h2>Últimos dias importados</h2>
+              <span>Resumo do histórico salvo neste navegador</span>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Data</th><th>Motoristas</th><th>Usando</th><th>Sem uso</th><th>Adesão</th><th>Eventos</th></tr></thead>
+              <tbody id="recentHistoryBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-panel" id="panel-history">
+        <article class="card table-card">
+          <div class="card-title">
+            <div>
+              <h2>Histórico diário</h2>
+              <span>Cada importação fica registrada por data</span>
+            </div>
+            <button class="btn btn-soft" id="btnExportHistory">Exportar histórico CSV</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Data</th><th>Total</th><th>Usando</th><th>Sem uso</th><th>Adesão</th><th>Eventos</th><th></th></tr></thead>
+              <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-panel" id="panel-drivers">
+        <article class="card table-card">
+          <div class="card-title">
+            <div>
+              <h2>Motoristas</h2>
+              <span>Filtre por nome ou situação de uso</span>
+            </div>
+            <div class="mini-filters">
+              <input id="driverSearch" type="search" placeholder="Buscar motorista...">
+              <select id="driverStatusFilter">
+                <option value="all">Todos</option>
+                <option value="used">Usando</option>
+                <option value="unused">Sem uso</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll tall">
+            <table>
+              <thead><tr><th>Motorista</th><th>Cargo</th><th>Empresa</th><th>Status</th><th>Eventos</th><th>Último registro</th></tr></thead>
+              <tbody id="driversBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-panel" id="panel-individual">
+        <article class="card individual-card">
+          <div class="card-title">
+            <div>
+              <h2 id="individualTitle">Selecione um motorista</h2>
+              <span id="individualSubtitle">Use o filtro acima para acompanhar a evolução individual.</span>
+            </div>
+          </div>
+          <div class="individual-summary" id="individualSummary"></div>
+          <div class="chart-area"><canvas id="individualChart"></canvas></div>
+        </article>
+      </section>
+
+      <footer>
+        <span>Dashboard interno · dados processados no navegador</span>
+        <span>Histórico salvo localmente neste dispositivo</span>
+      </footer>
+    </main>
+  </div>
+
+  <div class="modal hidden" id="dateModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div><h3>Importar logs</h3><p>Escolha a data que deve representar esta planilha.</p></div>
+        <button class="icon-btn" id="closeModal">×</button>
+      </div>
+      <div class="modal-body">
+        <label>Data do log</label>
+        <input type="date" id="importDate">
+        <p class="muted" id="detectedDates"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-soft" id="cancelImport">Cancelar</button>
+        <button class="btn btn-primary" id="confirmImport">Salvar no histórico</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
