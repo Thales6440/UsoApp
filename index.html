@@ -135,6 +135,7 @@
         <button class="tab active" data-tab="overview">Visão do período</button>
         <button class="tab" data-tab="history">Histórico</button>
         <button class="tab" data-tab="drivers">Motoristas</button>
+        <button class="tab" data-tab="ranking">Ranking de logs</button>
         <button class="tab" data-tab="individual">Motorista selecionado</button>
       </section>
 
@@ -184,11 +185,34 @@
       </section>
 
       <section class="tab-panel" id="panel-drivers">
+        <div class="lists-grid">
+          <article class="card list-card">
+            <div class="card-title">
+              <div>
+                <h2>Motoristas que usaram o app</h2>
+                <span id="usedListCount">0 motoristas</span>
+              </div>
+              <span class="list-badge used-badge">USANDO</span>
+            </div>
+            <div class="driver-list" id="usedDriversList"></div>
+          </article>
+          <article class="card list-card">
+            <div class="card-title">
+              <div>
+                <h2>Motoristas que ainda não usaram</h2>
+                <span id="unusedListCount">0 motoristas</span>
+              </div>
+              <span class="list-badge unused-badge">SEM USO</span>
+            </div>
+            <div class="driver-list" id="unusedDriversList"></div>
+          </article>
+        </div>
+
         <article class="card table-card">
           <div class="card-title">
             <div>
               <h2>Motoristas</h2>
-              <span>Filtre por nome ou situação de uso</span>
+              <span>Filtro detalhado do dia selecionado</span>
             </div>
             <div class="mini-filters">
               <input id="driverSearch" type="search" placeholder="Buscar motorista...">
@@ -201,8 +225,26 @@
           </div>
           <div class="table-scroll tall">
             <table>
-              <thead><tr><th>Motorista</th><th>Cargo</th><th>Empresa</th><th>Status</th><th>Eventos</th><th>Último registro</th></tr></thead>
+              <thead><tr><th>Motorista</th><th>Cargo</th><th>Empresa</th><th>Status</th><th>Logs</th><th>Último registro</th></tr></thead>
               <tbody id="driversBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="tab-panel" id="panel-ranking">
+        <article class="card table-card">
+          <div class="card-title">
+            <div>
+              <h2>Ranking de utilização</h2>
+              <span>Motoristas ordenados pelo número de logs no dia selecionado</span>
+            </div>
+            <div class="ranking-summary" id="rankingSummary"></div>
+          </div>
+          <div class="table-scroll tall">
+            <table>
+              <thead><tr><th>#</th><th>Motorista</th><th>Cargo</th><th>Logs</th><th>% dos logs</th><th>Status</th><th>Último registro</th></tr></thead>
+              <tbody id="rankingBody"></tbody>
             </table>
           </div>
         </article>

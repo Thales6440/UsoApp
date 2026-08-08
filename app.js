@@ -234,6 +234,48 @@ function renderHistoryTable(){
   }).join("")||`<tr><td class="empty" colspan="6">Importe os logs do primeiro dia para começar.</td></tr>`;
 }
 
+function renderDriverLists(){
+  const rec=currentRecord();
+  const rows=rec?.drivers||getDriverEmployees().map(d=>({...d,used:false,events:0,last:""}));
+  const used=[...rows].filter(d=>d.used).sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR"));
+  const unused=[...rows].filter(d=>!d.used).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+
+  $("usedListCount").textContent=`${used.length} motorista${used.length===1?"":"s"}`;
+  $("unusedListCount").textContent=`${unused.length} motorista${unused.length===1?"":"s"}`;
+
+  $("usedDriversList").innerHTML=used.map(d=>`
+    <div class="driver-row">
+      <div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div>
+      <div class="driver-log-count">${d.events} log${d.events===1?"":"s"}</div>
+    </div>`).join("") || `<div class="empty">Nenhum motorista usou o app neste dia.</div>`;
+
+  $("unusedDriversList").innerHTML=unused.map(d=>`
+    <div class="driver-row">
+      <div><strong>${esc(d.name)}</strong><span>${esc(d.cargo)}</span></div>
+      <div class="status unused">Sem uso</div>
+    </div>`).join("") || `<div class="empty">Todos os motoristas usaram o app neste dia.</div>`;
+}
+
+function renderRanking(){
+  const rec=currentRecord();
+  const rows=[...(rec?.drivers||[])].sort((a,b)=>b.events-a.events||a.name.localeCompare(b.name,"pt-BR"));
+  const totalLogs=rows.reduce((sum,d)=>sum+d.events,0);
+  $("rankingSummary").textContent=rec?`${rows.filter(d=>d.events>0).length} usuários · ${totalLogs.toLocaleString("pt-BR")} logs`:"Sem dados";
+
+  $("rankingBody").innerHTML=rows.map((d,i)=>{
+    const share=totalLogs?pct(d.events,totalLogs):0;
+    return `<tr>
+      <td class="rank-number ${i<3?"rank-top":""}">${i+1}</td>
+      <td><strong>${esc(d.name)}</strong></td>
+      <td>${esc(d.cargo)}</td>
+      <td><strong>${d.events}</strong></td>
+      <td>${share.toFixed(2)}%</td>
+      <td><span class="status ${d.used?"used":"unused"}">${d.used?"Usando":"Sem uso"}</span></td>
+      <td>${d.last?new Date(d.last).toLocaleString("pt-BR"):"—"}</td>
+    </tr>`;
+  }).join("") || `<tr><td class="empty" colspan="7">Nenhum dado disponível.</td></tr>`;
+}
+
 function renderDrivers(){
   const rec=currentRecord();
   const rows=(rec?.drivers||getDriverEmployees().map(d=>({...d,used:false,events:0,last:""})));
@@ -293,7 +335,7 @@ function renderIndividual(){
 
 function updateUI(){
   loadData();
-  populateDates(); populateDrivers(); renderStats(); renderHistoryTable(); renderDrivers(); renderHistoryChart(); renderIndividual();
+  populateDates(); populateDrivers(); renderStats(); renderHistoryTable(); renderDrivers(); renderDriverLists(); renderRanking(); renderHistoryChart(); renderIndividual();
 }
 
 window.selectHistoryDate=(date)=>{
