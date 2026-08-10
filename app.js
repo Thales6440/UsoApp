@@ -5,7 +5,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const state = {
   user:null, employees:[], history:{}, selectedDate:"",
-  pendingLogs:null, historyChart:null, individualChart:null
+  pendingLogs:null, pendingChecklist:null, historyChart:null, individualChart:null
 };
 
 const DRIVER_ROLES = new Set([
@@ -43,6 +43,7 @@ async function loadCloudData(){
     state.history[date]={date,total:drivers.length,used,unused:drivers.length-used,events:drivers.reduce((s,d)=>s+d.events,0),adherence:pct(used,drivers.length),drivers};
   }
   state.selectedDate=state.selectedDate&&state.history[state.selectedDate]?state.selectedDate:historyDates()[0]||"";
+  await loadChecklistData();
 }
 
 async function importEmployees(file){
@@ -142,6 +143,206 @@ function parseDateTime(v){
   const d=new Date(s);return isNaN(d) ? null : d.toISOString();
 }
 
+
+function checklistRowsFromState(){
+  return state.checklistRows || [];
+}
+
+function checklistMonths(){
+  const months=new Set(checklistRowsFromState().map(r=>String(r.data||"").slice(0,7)).filter(Boolean));
+  return [...months].sort().reverse();
+}
+
+function checklistReport(month){
+  const employees=state.employees||[];
+  const rows=checklistRowsFromState().filter(r=>!month || String(r.data).slice(0,7)===month);
+  const days=[...new Set(rows.map(r=>r.data).filter(Boolean))].sort();
+  const goal=days.length*2;
+  const byDriver=new Map();
+
+  for(const e of employees){
+    byDriver.set(e.id,{
+      id:e.id,name:e.nome,matricula:e.matricula,cargo:e.cargo,empresa:e.empresa,
+      checklists:0,days:new Set(),dayCounts:{}
+    });
+  }
+
+  const byName=new Map(employees.map(e=>[normalize(e.nome),e]));
+  for(const r of rows){
+    let e=r.motorista_id?employees.find(x=>x.id===r.motorista_id):null;
+    if(!e) e=byName.get(normalize(r.nome_motorista||""));
+    if(!e) continue;
+    const g=byDriver.get(e.id);
+    if(!g) continue;
+    g.checklists++;
+    g.days.add(r.data);
+    g.dayCounts[r.data]=(g.dayCounts[r.data]||0)+1;
+  }
+
+  const report=[...byDriver.values()].map(g=>{
+    const completeDays=days.filter(d=>(g.dayCounts[d]||0)>=2).length;
+    const percent=goal?pct(g.checklists,goal):0;
+    let status="zero";
+    if(g.checklists>=goal && goal>0) status="ok";
+    else if(g.checklists>0) status="below";
+    return {...g,daysCompleted:completeDays,percent,status,daysUsed:g.days.size};
+  });
+
+  report.sort((a,b)=>b.checklists-a.checklists||a.name.localeCompare(b.name,"pt-BR"));
+  return {month,days,goal,rows,report};
+}
+
+function renderChecklist(){
+  const months=checklistMonths();
+  const select=$("checklistMonth");
+  if(!select) return;
+
+  const previous=select.value;
+  select.innerHTML=`<option value="">Todos os meses</option>`+
+    months.map(m=>`<option value="${m}">${m.slice(5,7)}/${m.slice(0,4)}</option>`).join("");
+  if(months.includes(previous)) select.value=previous;
+  else if(months.length) select.value=months[0];
+
+  const month=select.value||"";
+  const data=checklistReport(month);
+
+  $("checklistDays").textContent=data.days.length;
+  $("checklistGoal").textContent=data.goal;
+  $("checklistTotal").textContent=data.rows.length;
+
+  const onTarget=data.report.filter(r=>r.status==="ok").length;
+  const below=data.report.filter(r=>r.status==="below").length;
+  const zero=data.report.filter(r=>r.status==="zero").length;
+  const avg=data.report.length?data.report.reduce((s,r)=>s+r.percent,0)/data.report.length:0;
+
+  $("checklistOnTarget").textContent=onTarget;
+  $("checklistBelowTarget").textContent=below;
+  $("checklistZero").textContent=zero;
+  $("checklistAverage").textContent=`${avg.toFixed(1)}%`;
+
+  const filter=$("checklistStatusFilter")?.value||"all";
+  const search=normalize($("checklistSearch")?.value||"");
+  const visible=data.report.filter(r=>{
+    const okFilter=filter==="all"||r.status===filter;
+    const okSearch=!search||normalize(r.name).includes(search)||normalize(r.matricula).includes(search);
+    return okFilter&&okSearch;
+  });
+
+  $("checklistBody").innerHTML=visible.map((r,i)=>{
+    const label=r.status==="ok"?"Dentro da meta":r.status==="zero"?"Sem checklist":"Abaixo da meta";
+    return `<tr>
+      <td>${i+1}</td>
+      <td><strong>${esc(r.name)}</strong></td>
+      <td>${esc(r.cargo)}</td>
+      <td>${r.daysCompleted}/${data.days.length}</td>
+      <td><strong>${r.checklists}</strong></td>
+      <td>${data.goal}</td>
+      <td>${r.percent.toFixed(1)}%</td>
+      <td><span class="status ${r.status==="ok"?"used":r.status==="zero"?"unused":"warning"}">${label}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td class="empty" colspan="8">Nenhum motorista encontrado.</td></tr>`;
+}
+
+function parseChecklistRows(file){
+  parseWorkbook(file,(err,rows)=>{
+    if(err)return showToast(err.message);
+
+    const mapped=rows.map(r=>({
+      data:toDateKey(r["DATA"]),
+      tipo:normalize(r["TIPO"]).replace("INICIO","INÍCIO"),
+      horario_inicial:String(r["HORÁRIO INICIAL"]??"").trim()||null,
+      horario_final:String(r["HORÁRIO FINAL"]??"").trim()||null,
+      nome_motorista:String(r["MOTORISTA"]??"").trim(),
+      prefixo:String(r["PREFIXO"]??"").trim()||null,
+      status:String(r["STATUS CHECKLIST"]??"").trim()||null
+    })).filter(r=>r.data&&r.nome_motorista&&(r.tipo==="INÍCIO"||r.tipo==="FIM"));
+
+    if(!mapped.length)return showToast("Não encontrei registros válidos de INÍCIO/FIM na planilha.");
+    const dates=[...new Set(mapped.map(r=>r.data))].sort();
+
+    state.pendingChecklist={rows:mapped,dates};
+    $("checklistDetected").textContent=`${mapped.length} registros · ${dates.length} dia(s): ${dates.map(formatDate).join(", ")}`;
+    $("checklistModal").classList.remove("hidden");
+  });
+}
+
+async function confirmChecklistImport(){
+  if(!state.pendingChecklist)return;
+  if(!state.employees.length)return showToast("Importe a planilha de funcionários primeiro.");
+
+  try{
+    const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
+    const mapped=state.pendingChecklist.rows.map(r=>{
+      const e=byName.get(normalize(r.nome_motorista));
+      return e?{...r,motorista_id:e.id}:null;
+    }).filter(Boolean);
+
+    const unknown=state.pendingChecklist.rows.length-mapped.length;
+    const dates=state.pendingChecklist.dates;
+
+    for(const date of dates){
+      const {error}=await db.from("checklist_registros").delete().eq("data",date);
+      if(error)throw error;
+    }
+
+    const records=mapped.map(r=>({
+      motorista_id:r.motorista_id,
+      data:r.data,
+      tipo:r.tipo,
+      horario_inicial:r.horario_inicial,
+      horario_final:r.horario_final,
+      status:r.status,
+      prefixo:r.prefixo
+    }));
+
+    for(let i=0;i<records.length;i+=500){
+      const {error}=await db.from("checklist_registros").insert(records.slice(i,i+500));
+      if(error)throw error;
+    }
+
+    const {data,error}=await db.from("checklist_registros")
+      .select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo");
+    if(error)throw error;
+
+    state.checklistRows=(data||[]).map(r=>({
+      ...r,
+      nome_motorista:(state.employees.find(e=>e.id===r.motorista_id)||{}).nome||""
+    }));
+
+    state.pendingChecklist=null;
+    $("checklistModal").classList.add("hidden");
+    renderChecklist();
+    showToast(`${mapped.length} checklists salvos. ${unknown} registros não encontrados na base de motoristas.`);
+  }catch(e){
+    console.error(e);
+    showToast("Erro ao salvar checklists: "+e.message);
+  }
+}
+
+async function loadChecklistData(){
+  const {data,error}=await db.from("checklist_registros")
+    .select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo")
+    .order("data",{ascending:false});
+  if(error)throw error;
+
+  const names=new Map((state.employees||[]).map(e=>[e.id,e.nome]));
+  state.checklistRows=(data||[]).map(r=>({...r,nome_motorista:names.get(r.motorista_id)||""}));
+}
+
+function exportChecklistReport(){
+  const month=$("checklistMonth")?.value||"";
+  const data=checklistReport(month);
+  const rows=[
+    ["Motorista","Matrícula","Cargo","Dias completos","Dias analisados","Checklists","Meta","Cumprimento","Situação"],
+    ...data.report.map(r=>[
+      r.name,r.matricula,r.cargo,r.daysCompleted,data.days.length,
+      r.checklists,data.goal,r.percent.toFixed(2)+"%",
+      r.status==="ok"?"Dentro da meta":r.status==="zero"?"Sem checklist":"Abaixo da meta"
+    ])
+  ];
+  csvDownload(`relatorio_checklist_${month||"todos"}.csv`,rows);
+}
+
 function renderBaseCheck(){
   const d=state.employees,bus=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - ÔNIBUS")).length,micro=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - MICRO ÔNIBUS")).length,van=d.filter(e=>normalize(e.cargo)===normalize("MOTORISTA - VAN")).length;
   $("baseCheckText").textContent=d.length?`${d.length} motoristas ativos no Supabase.`:"Nenhum motorista cadastrado.";
@@ -219,7 +420,7 @@ function exportRanking(){
   csvDownload(`ranking_logs_${r.date}.csv`,[["Ranking","Motorista","Matrícula","Cargo","Empresa","Logs","% dos logs","Status","Último registro"],...rows.map((d,i)=>[i+1,d.name,d.matricula,d.cargo,d.empresa,d.events,total?pct(d.events,total).toFixed(2)+"%":"0.00%",d.used?"Usando":"Sem uso",d.last?new Date(d.last).toLocaleString("pt-BR"):""])]);
 }
 function activateTab(n){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===n));document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active",p.id===`panel-${n}`))}
-function updateUI(){populateDates();populateDrivers();renderBaseCheck();renderStats();renderHistoryTable();renderLists();renderDrivers();renderRanking();renderCharts();renderIndividual()}
+function updateUI(){populateDates();populateDrivers();renderBaseCheck();renderStats();renderHistoryTable();renderLists();renderDrivers();renderRanking();renderChecklist();renderCharts();renderIndividual()}
 window.selectHistoryDate=d=>{state.selectedDate=d;$("dateSelect").value=d;updateUI();activateTab("overview")};
 
 async function fullReset(){
@@ -345,7 +546,7 @@ $("btnLogout").onclick=async()=>{
 };
 
 $("btnImportChecklist").onclick=()=>$("checklistInput").click();
-$("checklistInput").onchange=e=>{if(e.target.files[0])importChecklist(e.target.files[0]);e.target.value=""};
+$("checklistInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
 $("confirmChecklistImport").onclick=confirmChecklistImport;
 $("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
 $("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
@@ -365,5 +566,10 @@ $("btnExportHistory").onclick=()=>{const rows=[["Data","Total","Usando","Sem uso
 $("exportUsed").onclick=()=>exportList("used");$("exportUnused").onclick=()=>exportList("unused");$("exportRanking").onclick=exportRanking;
 $("btnFullReset").onclick=fullReset;
 $("periodSelect").onchange=e=>{state.selectedDate=historyDates().sort()[e.target.value==="all"?0:Math.max(0,historyDates().length-1)]||"";updateUI()};
-document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.tab)));
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",e=>{
+  e.preventDefault();
+  activateTab(b.dataset.tab);
+  if(b.dataset.tab==="checklist") renderChecklist();
+  if(b.dataset.tab==="individual") renderIndividual();
+}));
 startApp();

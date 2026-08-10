@@ -83,3 +83,5 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 .check-status{font-size:8px;font-weight:700;padding:5px 7px;border-radius:999px;display:inline-block}
 .check-ok{color:#167b5c;background:#edf9f4}.check-below{color:#a56b00;background:#fff8e8}.check-zero{color:#c33d3d;background:#fff1f1}
 @media(max-width:900px){.checklist-toolbar{flex-wrap:wrap}.checklist-toolbar .field{min-width:180px}}
+
+.status.warning{color:#9a6500;background:#fff7df}

@@ -62,3 +62,6 @@ A aplicação procura:
 - `TELA` (opcional)
 
 A aplicação também normaliza acentos e espaços para evitar erro simples de correspondência de nomes.
+
+
+V6 FIX: implementado o relatório de checklist, importação INÍCIO/FIM, cruzamento por motorista, filtros, exportação e navegação das abas.
