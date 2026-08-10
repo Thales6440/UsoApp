@@ -201,6 +201,17 @@ function checklistReport(startDate,endDate){
   return {start,end,days,goal,rows,report};
 }
 
+function applyChecklistPeriod(){
+  const start=$("checklistStartDate")?.value||"";
+  const end=$("checklistEndDate")?.value||"";
+  if(start&&end&&start>end){
+    showToast("A data inicial não pode ser maior que a data final.");
+    return;
+  }
+  renderChecklist();
+  showToast(`Período aplicado: ${start?formatDate(start):"início"} até ${end?formatDate(end):"fim"}.`);
+}
+
 function renderChecklist(){
   const dates=checklistAvailableDates();
   const startInput=$("checklistStartDate");
@@ -211,22 +222,10 @@ function renderChecklist(){
   if(!startInput.value)startInput.value=defaults.start;
   if(!endInput.value)endInput.value=defaults.end;
 
-  // Keep selected dates valid when a new file is imported.
-  if(startInput.value && dates.length && !dates.includes(startInput.value)){
-    const first=dates.find(d=>d>=startInput.value)||dates[0];
-    startInput.value=first;
-  }
-  if(endInput.value && dates.length && !dates.includes(endInput.value)){
-    const last=[...dates].reverse().find(d=>d<=endInput.value)||dates[dates.length-1];
-    endInput.value=last;
-  }
-
+  // The selected dates may be any valid period, not only dates that already have records.
+  // This is important: selecting 01/07 to 31/07 must include all launched days inside that window.
   let start=startInput.value||defaults.start;
   let end=endInput.value||defaults.end;
-  if(start && end && start>end){
-    const tmp=start;start=end;end=tmp;
-    startInput.value=start;endInput.value=end;
-  }
 
   const data=checklistReport(start,end);
   $("checklistDays").textContent=data.days.length;

@@ -106,3 +106,6 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 .btn-danger-soft{background:#fff5f5 !important;color:#c62828 !important;border:1px solid #ffcaca !important}
 .btn-danger-soft:hover{background:#ffeaea !important}
 .btn-danger-soft:disabled{opacity:.55;cursor:not-allowed}
+
+#applyChecklistPeriod{min-width:125px}
+.checklist-toolbar .check-meta{min-width:115px}
