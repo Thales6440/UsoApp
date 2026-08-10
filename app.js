@@ -17,7 +17,16 @@ const DRIVER_ROLES = new Set([
 function $(id){return document.getElementById(id)}
 function normalize(value){return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\.+$/,"").replace(/\s+/g," ").trim().toUpperCase()}
 function formatDate(d){if(!d)return"—";const [y,m,day]=d.split("-");return`${day}/${m}/${y}`}
-function toDateKey(v){if(v instanceof Date&&!isNaN(v))return`${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;const s=String(v??"").trim();const m=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);if(m)return`${m[3]}-${m[2]}-${m[1]}`;const dt=new Date(s);return isNaN(dt)?"":toDateKey(dt)}
+function toDateKey(v){
+  if(v instanceof Date&&!isNaN(v))return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
+  if(typeof v==="number"&&isFinite(v)){const d=new Date(Date.UTC(1899,11,30)+Math.round(v*86400000));return isNaN(d)?"":`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;}
+  const str=String(v??"").trim();
+  const m=str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if(m)return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
+  const iso=str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(iso)return `${iso[1]}-${String(iso[2]).padStart(2,"0")}-${String(iso[3]).padStart(2,"0")}`;
+  const dt=new Date(str);return isNaN(dt)?"":`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+}
 function pct(n,d){return d?(n/d)*100:0}
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function showToast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(showToast.t);showToast.t=setTimeout(()=>$("toast").classList.add("hidden"),3500)}
@@ -289,106 +298,81 @@ function applyChecklistPeriod(){
 // HORÁRIO FINAL, TIPO, MOTORISTA, PREFIXO e STATUS CHECKLIST separados — não existe
 // coluna DATA/HORA nem MATRÍCULA. Este parser lê o formato real do arquivo.
 function combineDateTime(dateKey,timeVal){
-  if(!dateKey||timeVal===""||timeVal==null)return null;
+  if(!dateKey || timeVal === "" || timeVal == null) return null;
+
   let h=0,m=0,s=0;
-  if(timeVal instanceof Date&&!isNaN(timeVal)){
-    h=timeVal.getHours();m=timeVal.getMinutes();s=timeVal.getSeconds();
+
+  if(timeVal instanceof Date && !isNaN(timeVal)){
+    h=timeVal.getHours();
+    m=timeVal.getMinutes();
+    s=timeVal.getSeconds();
   }else{
-    const mt=String(timeVal).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if(!mt)return null;
-    h=+mt[1];m=+mt[2];s=+(mt[3]||0);
+    const value=String(timeVal).trim();
+
+    // Aceita HH:MM ou HH:MM:SS
+    const mt=value.match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?/);
+    if(!mt) return null;
+
+    h=Number(mt[1]);
+    m=Number(mt[2]);
+    s=Number(mt[3]||0);
   }
-  const d=new Date(`${dateKey}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}-03:00`);
-  return isNaN(d)?null:d.toISOString();
+
+  if(h>23 || m>59 || s>59) return null;
+
+  // A coluna do Supabase é do tipo TIME.
+  // Portanto enviamos somente HH:MM:SS, e não um timestamp ISO.
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
 }
 
 function parseChecklistRows(file){
   parseWorkbook(file,(err,rows)=>{
-    if(err)return showToast(err.message);
-    const mapped=rows.map(r=>{
-      const dateRaw=r["DATA"]??r["DATA/HORA"]??"";
-      const dateKey=toDateKey(dateRaw);
-      return {
-        dateKey,
-        driver:String(r["MOTORISTA"]||"").trim(),
-        matricula:String(r["MATRÍCULA"]??r["MATRICULA"]??"").trim(),
-        tipo:String(r["TIPO"]||r["AÇÃO"]||"").trim(),
-        horaInicial:r["HORÁRIO INICIAL"]??r["HORARIO INICIAL"]??"",
-        horaFinal:r["HORÁRIO FINAL"]??r["HORARIO FINAL"]??"",
-        prefixo:String(r["PREFIXO"]??"").trim(),
-        status:String(r["STATUS CHECKLIST"]??r["STATUS"]??"").trim()
-      };
-    }).filter(x=>x.driver && x.dateKey);
-    if(!mapped.length)return showToast("Não encontrei registros válidos (colunas MOTORISTA e DATA).");
+    if(err)return showToast("Erro ao ler o Excel: "+err.message);
+    const mapped=rows.map(r=>({
+      dateKey:toDateKey(rowValue(r,"DATA","DATA/HORA")),
+      driver:String(rowValue(r,"MOTORISTA")||"").trim(),
+      matricula:String(rowValue(r,"MATRÍCULA","MATRICULA")||"").trim(),
+      tipo:String(rowValue(r,"TIPO","AÇÃO")||"").trim(),
+      horaInicial:rowValue(r,"HORÁRIO INICIAL","HORARIO INICIAL"),
+      horaFinal:rowValue(r,"HORÁRIO FINAL","HORARIO FINAL"),
+      prefixo:String(rowValue(r,"PREFIXO")||"").trim(),
+      status:String(rowValue(r,"STATUS CHECKLIST","STATUS")||"").trim()
+    })).filter(x=>x.driver&&x.dateKey);
+    if(!mapped.length)return showToast("Não encontrei registros. Verifique as colunas DATA e MOTORISTA da planilha.");
+    const valid=mapped.filter(x=>normalizeChecklistType(x.tipo)).length;
+    if(!valid)return showToast("Encontrei os motoristas, mas não encontrei TIPO com INÍCIO ou FIM.");
+    const dates=[...new Set(mapped.map(x=>x.dateKey))].sort();
     state.pendingChecklist={rows:mapped};
-    $("checklistDetected").textContent=`${mapped.length} registros detectados no arquivo.`;
-    $("checklistSaveError").textContent="";
-    $("checklistModal").classList.remove("hidden");
+    $("checklistDetected").textContent=`${mapped.length} linhas · ${valid} INÍCIO/FIM válidos · ${dates.length} dia(s)`;
+    $("checklistSaveError").textContent="";$("checklistModal").classList.remove("hidden");
   });
 }
 
 async function confirmChecklistImport(){
   if(!state.pendingChecklist)return;
-  const errorBox=$("checklistSaveError");
-  const button=$("confirmChecklistImport");
-  errorBox.textContent="";
-  if(!state.employees.length){
-    errorBox.textContent="Importe a planilha de funcionários antes de importar o checklist.";
-    return;
-  }
-  button.disabled=true;
+  const errorBox=$("checklistSaveError"),button=$("confirmChecklistImport"); errorBox.textContent="";
+  if(!state.employees.length){errorBox.textContent="Importe a planilha de funcionários antes do checklist.";return;}
+  button.disabled=true;button.textContent="Salvando...";
   try{
     const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
-    const byMatricula=new Map(state.employees.filter(e=>e.matricula).map(e=>[String(e.matricula).trim(),e]));
-    const unmatchedNames=new Set();
-    const rows=state.pendingChecklist.rows.map(r=>{
-      const emp=(r.matricula&&byMatricula.get(r.matricula))||byName.get(normalize(r.driver));
-      let tipo=normalize(r.tipo).replace("INICIO","INÍCIO");
-      if(tipo!=="INÍCIO"&&tipo!=="FIM")tipo=null;
-      if(!(emp&&r.dateKey&&tipo)){
-        if(r.driver&&!emp)unmatchedNames.add(r.driver);
-        return null;
-      }
+    const byMatricula=new Map(state.employees.filter(e=>e.matricula).map(e=>[normalize(e.matricula),e]));
+    const unmatched=new Set(),unique=new Map();
+    for(const r of state.pendingChecklist.rows){
+      const emp=(r.matricula&&byMatricula.get(normalize(r.matricula)))||byName.get(normalize(r.driver));
+      const tipo=normalizeChecklistType(r.tipo);
+      if(!emp){unmatched.add(r.driver);continue;} if(!r.dateKey||!tipo)continue;
       const horario=combineDateTime(r.dateKey,tipo==="INÍCIO"?r.horaInicial:r.horaFinal);
-      return {
-        motorista_id:emp.id,
-        data:r.dateKey,
-        tipo,
-        horario_inicial:tipo==="INÍCIO"?horario:null,
-        horario_final:tipo==="FIM"?horario:null,
-        status:r.status||null,
-        prefixo:r.prefixo||null
-      };
-    }).filter(Boolean);
-    const skipped=state.pendingChecklist.rows.length-rows.length;
-    if(!rows.length){
-      errorBox.textContent="Nenhum registro pôde ser cruzado com a base de motoristas. Confira o nome do motorista (coluna MOTORISTA) e se a coluna TIPO contém INÍCIO ou FIM.";
-      button.disabled=false;
-      return;
+      const rec={motorista_id:emp.id,data:r.dateKey,tipo,horario_inicial:tipo==="INÍCIO"?horario:null,horario_final:tipo==="FIM"?horario:null,status:r.status||null,prefixo:r.prefixo||null};
+      const key=`${emp.id}|${r.dateKey}|${tipo}`; if(!unique.has(key))unique.set(key,rec);
     }
-    // Replace the imported dates so reimportar o mesmo arquivo/período nunca duplica.
+    const rows=[...unique.values()]; if(!rows.length){errorBox.textContent="Nenhum registro válido foi cruzado com os motoristas. Confira MOTORISTA e TIPO INÍCIO/FIM.";return;}
     const dates=[...new Set(rows.map(r=>r.data))];
-    for(const d of dates){
-      const {error:delErr}=await db.from("checklist_registros").delete().eq("data",d);
-      if(delErr)throw delErr;
-    }
-    for(let i=0;i<rows.length;i+=500){
-      const {error}=await db.from("checklist_registros").insert(rows.slice(i,i+500));
-      if(error)throw error;
-    }
-    await loadChecklistData();
-    renderChecklist();
-    $("checklistModal").classList.add("hidden");
-    state.pendingChecklist=null;
-    const namesList=[...unmatchedNames];
-    const namesMsg=namesList.length?` ${namesList.length} motorista(s) do arquivo não encontrados na base (ex.: ${namesList.slice(0,3).join(", ")}).`:"";
-    showToast(`${rows.length} checklists salvos.${skipped?` ${skipped} registro(s) ignorado(s).`:""}${namesMsg}`);
-  }catch(e){
-    console.error(e);
-    errorBox.textContent="Erro ao salvar no Supabase: "+e.message;
-  }finally{
-    button.disabled=false;
-  }
+    for(const d of dates){const {error}=await db.from("checklist_registros").delete().eq("data",d);if(error)throw new Error(`Não foi possível limpar ${formatDate(d)}: ${error.message}`);}
+    for(let i=0;i<rows.length;i+=500){const {error}=await db.from("checklist_registros").insert(rows.slice(i,i+500));if(error)throw new Error(`Supabase recusou o lote ${Math.floor(i/500)+1}: ${error.message}`);}
+    await loadChecklistData();renderChecklist();$("checklistModal").classList.add("hidden");state.pendingChecklist=null;
+    showToast(`${rows.length} checklists válidos salvos.${unmatched.size?` ${unmatched.size} motorista(s) não encontrados.`:""}`);
+  }catch(e){console.error("CHECKLIST_IMPORT_ERROR",e);errorBox.textContent="Erro ao salvar no Supabase: "+(e.message||"erro desconhecido");}
+  finally{button.disabled=false;button.textContent="Salvar no Supabase";}
 }
 
 async function clearAllChecklists(){
