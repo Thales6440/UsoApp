@@ -162,11 +162,13 @@ function checklistReport(startDate,endDate){
   const allDates=checklistAvailableDates();
   const start=startDate||allDates[0]||"";
   const end=endDate||allDates[allDates.length-1]||"";
-  const rows=checklistRowsFromState().filter(r=>{
+
+  const rawRows=checklistRowsFromState().filter(r=>{
     const d=String(r.data||"");
     return d && (!start||d>=start) && (!end||d<=end);
   });
-  const days=[...new Set(rows.map(r=>r.data).filter(Boolean))].sort();
+
+  const days=[...new Set(rawRows.map(r=>r.data).filter(Boolean))].sort();
   const goal=days.length*2;
   const byDriver=new Map();
 
@@ -178,38 +180,53 @@ function checklistReport(startDate,endDate){
   }
 
   const byName=new Map(employees.map(e=>[normalize(e.nome),e]));
-  for(const r of rows){
+
+  // IMPORTANT:
+  // Each driver can earn at most 2 valid checklists per day:
+  // 1 INÍCIO + 1 FIM.
+  // Repeated INÍCIO/FIM rows on the same day are ignored for the compliance score.
+  const uniqueByDriverDay=new Map();
+
+  for(const r of rawRows){
     let e=r.motorista_id?employees.find(x=>x.id===r.motorista_id):null;
     if(!e) e=byName.get(normalize(r.nome_motorista||""));
     if(!e) continue;
-    const g=byDriver.get(e.id);
+
+    const tipo=normalize(r.tipo).replace("INICIO","INÍCIO");
+    if(tipo!=="INÍCIO" && tipo!=="FIM") continue;
+
+    const key=`${e.id}__${r.data}`;
+    if(!uniqueByDriverDay.has(key)){
+      uniqueByDriverDay.set(key,{motorista_id:e.id,data:r.data,tipos:new Set()});
+    }
+    uniqueByDriverDay.get(key).tipos.add(tipo);
+  }
+
+  for(const item of uniqueByDriverDay.values()){
+    const g=byDriver.get(item.motorista_id);
     if(!g) continue;
-    g.checklists++;
-    g.days.add(r.data);
-    g.dayCounts[r.data]=(g.dayCounts[r.data]||0)+1;
+
+    const count=Math.min(item.tipos.size,2);
+    g.checklists+=count;
+    g.days.add(item.data);
+    g.dayCounts[item.data]=count;
   }
 
   const report=[...byDriver.values()].map(g=>{
     const completeDays=days.filter(d=>(g.dayCounts[d]||0)>=2).length;
     const percent=goal?pct(g.checklists,goal):0;
-    // Only two groups: at/above the target = inside; below = outside.
     const status=goal>0 && g.checklists>=goal ? "inside" : "outside";
     return {...g,daysCompleted:completeDays,percent,status,daysUsed:g.days.size};
   });
 
   report.sort((a,b)=>b.checklists-a.checklists||a.name.localeCompare(b.name,"pt-BR"));
-  return {start,end,days,goal,rows,report};
-}
 
-function applyChecklistPeriod(){
-  const start=$("checklistStartDate")?.value||"";
-  const end=$("checklistEndDate")?.value||"";
-  if(start&&end&&start>end){
-    showToast("A data inicial não pode ser maior que a data final.");
-    return;
-  }
-  renderChecklist();
-  showToast(`Período aplicado: ${start?formatDate(start):"início"} até ${end?formatDate(end):"fim"}.`);
+  // The dashboard should display the number of VALID checklist events,
+  // not raw duplicated spreadsheet rows.
+  const validChecklistTotal=[...uniqueByDriverDay.values()]
+    .reduce((sum,item)=>sum+Math.min(item.tipos.size,2),0);
+
+  return {start,end,days,goal,rows:rawRows,validChecklistTotal,report};
 }
 
 function renderChecklist(){
@@ -230,7 +247,7 @@ function renderChecklist(){
   const data=checklistReport(start,end);
   $("checklistDays").textContent=data.days.length;
   $("checklistGoal").textContent=data.goal;
-  $("checklistTotal").textContent=data.rows.length;
+  $("checklistTotal").textContent=data.validChecklistTotal;
 
   const inside=data.report.filter(r=>r.status==="inside").length;
   const outside=data.report.filter(r=>r.status==="outside").length;
