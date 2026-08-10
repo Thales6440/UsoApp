@@ -17,6 +17,14 @@ const DRIVER_ROLES = new Set([
 function $(id){return document.getElementById(id)}
 function normalize(value){return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\.+$/,"").replace(/\s+/g," ").trim().toUpperCase()}
 function formatDate(d){if(!d)return"—";const [y,m,day]=d.split("-");return`${day}/${m}/${y}`}
+function normalizeChecklistType(value){
+  const t=normalize(value);
+  if(!t)return "";
+  if(t==="INICIO" || t.includes("INICIO")) return "INÍCIO";
+  if(t==="FIM" || t.includes("FIM")) return "FIM";
+  return "";
+}
+
 function rowValue(row, ...names){
   if(!row) return "";
   const normalized={};
