@@ -367,6 +367,43 @@ async function confirmChecklistImport(){
   }
 }
 
+
+async function clearAllChecklists(){
+  const total=state.checklistRows?.length||0;
+  if(!total){
+    showToast("Não há checklists salvos para limpar.");
+    return;
+  }
+
+  const confirmed=window.confirm(
+    `ATENÇÃO: isso vai apagar TODOS os checklists salvos no Supabase (${total} registros).\\n\\n`+
+    `A base de funcionários, os logs do aplicativo e o restante do histórico NÃO serão apagados.\\n\\n`+
+    `Deseja continuar?`
+  );
+  if(!confirmed)return;
+
+  const button=$("btnClearChecklist");
+  const original=button.textContent;
+  button.disabled=true;
+  button.textContent="Limpando...";
+
+  try{
+    const {error}=await db.from("checklist_registros").delete().not("id","is",null);
+    if(error)throw error;
+
+    state.checklistRows=[];
+    state.pendingChecklist=null;
+    renderChecklist();
+    showToast(`${total} registros de checklist foram apagados.`);
+  }catch(e){
+    console.error("CHECKLIST_CLEAR_ERROR",e);
+    showToast("Não foi possível limpar os checklists: "+(e.message||"erro desconhecido"));
+  }finally{
+    button.disabled=false;
+    button.textContent=original;
+  }
+}
+
 async function loadChecklistData(){
   const {data,error}=await db.from("checklist_registros")
     .select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo")
@@ -594,6 +631,7 @@ $("btnLogout").onclick=async()=>{
   }
 };
 
+if($("btnClearChecklist"))$("btnClearChecklist").onclick=clearAllChecklists;
 $("btnImportChecklist").onclick=()=>$("checklistInput").click();
 $("checklistInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
 $("confirmChecklistImport").onclick=confirmChecklistImport;

@@ -102,3 +102,7 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 .modal-error{display:none;margin:10px 0 0;padding:10px;border:1px solid #ffc9c9;background:#fff5f5;color:#b3261e;border-radius:8px;font-size:10px;line-height:1.45}
 .modal-error:not(:empty){display:block}
 .modal-actions .btn:disabled{opacity:.55;cursor:not-allowed}
+
+.btn-danger-soft{background:#fff5f5 !important;color:#c62828 !important;border:1px solid #ffcaca !important}
+.btn-danger-soft:hover{background:#ffeaea !important}
+.btn-danger-soft:disabled{opacity:.55;cursor:not-allowed}
