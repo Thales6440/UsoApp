@@ -5,7 +5,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const state = {
   user:null, employees:[], history:{}, selectedDate:"",
-  pendingLogs:null, pendingChecklist:null, historyChart:null, individualChart:null
+  pendingLogs:null, pendingChecklist:null, checklistRows:[], historyChart:null, individualChart:null
 };
 
 const DRIVER_ROLES = new Set([
@@ -545,15 +545,24 @@ $("btnLogout").onclick=async()=>{
   }
 };
 
-$("btnImportChecklist").onclick=()=>$("checklistInput").click();
-$("checklistInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
-$("confirmChecklistImport").onclick=confirmChecklistImport;
-$("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-$("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-$("checklistMonth").onchange=renderChecklist;
-$("checklistStatusFilter").onchange=renderChecklist;
-$("checklistSearch").oninput=renderChecklist;
-$("exportChecklistReport").onclick=exportChecklistReport;
+const checklistImportBtn=$("btnImportChecklist");
+if(checklistImportBtn) checklistImportBtn.onclick=()=>$("checklistInput").click();
+const checklistInput=$("checklistInput");
+if(checklistInput) checklistInput.onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
+const confirmChecklistBtn=$("confirmChecklistImport");
+if(confirmChecklistBtn) confirmChecklistBtn.onclick=confirmChecklistImport;
+const cancelChecklistBtn=$("cancelChecklistImport");
+if(cancelChecklistBtn) cancelChecklistBtn.onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+const closeChecklistBtn=$("closeChecklistModal");
+if(closeChecklistBtn) closeChecklistBtn.onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+const checklistMonth=$("checklistMonth");
+if(checklistMonth) checklistMonth.onchange=renderChecklist;
+const checklistStatusFilter=$("checklistStatusFilter");
+if(checklistStatusFilter) checklistStatusFilter.onchange=renderChecklist;
+const checklistSearch=$("checklistSearch");
+if(checklistSearch) checklistSearch.oninput=renderChecklist;
+const exportChecklistBtn=$("exportChecklistReport");
+if(exportChecklistBtn) exportChecklistBtn.onclick=exportChecklistReport;
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
 $("employeesInput").onchange=e=>{if(e.target.files[0])importEmployees(e.target.files[0]);e.target.value=""};
