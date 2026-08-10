@@ -49,11 +49,8 @@
         <button class="btn btn-ghost" id="btnLogout">Sair</button>
         <button class="btn btn-ghost" id="btnImportEmployees">Importar funcionários</button>
         <button class="btn btn-primary" id="btnImportLogs">Importar logs do dia</button>
-        <button type="button" class="btn btn-danger-soft" id="btnClearChecklist">Limpar checklist</button>
-          <button class="btn btn-soft" id="btnImportChecklist">Importar checklist</button>
         <input id="employeesInput" type="file" accept=".xlsx,.xls,.csv" hidden>
         <input id="logsInput" type="file" accept=".xlsx,.xls,.csv" hidden>
-        <input id="checklistInput" type="file" accept=".xlsx,.xls,.csv" hidden>
       </div>
     </header>
 
@@ -175,7 +172,6 @@
         <button class="tab" data-tab="history">Histórico</button>
         <button class="tab" data-tab="drivers">Motoristas</button>
         <button class="tab" data-tab="ranking">Ranking de logs</button>
-        <button class="tab" data-tab="checklist">Checklist</button>
         <button class="tab" data-tab="individual">Motorista selecionado</button>
       </section>
 
@@ -290,69 +286,6 @@
         </article>
       </section>
 
-      
-      <section class="tab-panel" id="panel-checklist">
-        <div class="checklist-toolbar card">
-          <div class="field">
-            <label>Data inicial</label>
-            <input id="checklistStartDate" type="date">
-          </div>
-          <div class="field">
-            <label>Data final</label>
-            <input id="checklistEndDate" type="date">
-          </div>
-          <div class="check-meta">
-            <span>Dias lançados</span><strong id="checklistDays">—</strong>
-          </div>
-          <div class="check-meta">
-            <span>Meta por motorista</span><strong id="checklistGoal">—</strong>
-          </div>
-          <div class="check-meta">
-            <span>Checklists lançados</span><strong id="checklistTotal">—</strong>
-          </div>
-          <button type="button" class="btn btn-primary" id="applyChecklistPeriod">Aplicar período</button>
-          <button type="button" class="btn btn-soft" id="exportChecklistReport">Exportar relatório</button>
-        </div>
-
-        <div class="stats-grid checklist-stats">
-          <article class="stat-card">
-            <div class="stat-label">Dentro da meta <span>✓</span></div>
-            <div class="stat-value" id="checklistOnTarget">—</div>
-            <div class="stat-meta">100% ou mais da meta</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-label">Fora da meta <span>!</span></div>
-            <div class="stat-value" id="checklistOutsideTarget">—</div>
-            <div class="stat-meta">Abaixo de 100%</div>
-          </article>
-        </div>
-
-        <article class="card table-card">
-          <div class="card-title">
-            <div>
-              <h2>Relatório de checklists por motorista</h2>
-              <span>Meta = 2 checklists/dia. INÍCIO + FIM contam 2; repetições no mesmo dia não aumentam a pontuação.</span>
-            </div>
-            <div class="mini-filters">
-              <select id="checklistStatusFilter">
-                <option value="all">Todos</option>
-                <option value="inside">Dentro da meta</option>
-                <option value="outside">Fora da meta</option>
-              </select>
-              <input id="checklistSearch" type="search" placeholder="Buscar motorista...">
-            </div>
-          </div>
-          <div class="table-scroll tall">
-            <table>
-              <thead>
-                <tr><th>#</th><th>Motorista</th><th>Cargo</th><th>Dias completos</th><th>Checklists</th><th>Meta</th><th>%</th><th>Situação</th></tr>
-              </thead>
-              <tbody id="checklistBody"></tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-
       <section class="tab-panel" id="panel-individual">
         <article class="card individual-card">
           <div class="card-title">
@@ -393,33 +326,9 @@
 
   <div class="toast hidden" id="toast"></div>
 
-
-  <div class="modal hidden checklist-modal" id="checklistModal">
-    <div class="modal-card checklist-modal-card">
-      <div class="modal-head">
-        <div>
-          <strong>Importar checklists</strong>
-          <span id="checklistDetected">—</span>
-        </div>
-        <button type="button" class="icon-btn" id="closeChecklistModal" aria-label="Fechar">×</button>
-      </div>
-      <p class="modal-help">
-        O sistema contará <strong>INÍCIO</strong> e <strong>FIM</strong> como dois checklists distintos.
-        Os registros serão cruzados com a base de motoristas pela matrícula/nome cadastrado.
-      </p>
-      <div class="modal-error" id="checklistSaveError"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="cancelChecklistImport">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="confirmChecklistImport">Salvar no Supabase</button>
-      </div>
-    </div>
-  </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="app.js"></script>
-  </div>
-
 </body>
 </html>
