@@ -144,6 +144,19 @@ function parseDateTime(v){
 }
 
 
+async function loadChecklistData(){
+  // ASSUNÇÃO: tabela "checklists" no Supabase com colunas motorista_id, nome_motorista, data, tipo.
+  // Ajuste os nomes abaixo se sua tabela real tiver outro nome/colunas.
+  const {data,error}=await db.from("checklists").select("motorista_id,nome_motorista,data,tipo");
+  if(error){
+    console.error(error);
+    state.checklistRows=[];
+    showToast("Erro ao carregar checklists: "+error.message);
+    return;
+  }
+  state.checklistRows=data||[];
+}
+
 function checklistRowsFromState(){
   return state.checklistRows || [];
 }
@@ -269,6 +282,93 @@ function applyChecklistPeriod(){
   }
   renderChecklist();
   showToast(`Período aplicado: ${formatDate(start)} a ${formatDate(end)}.`);
+}
+
+function parseChecklistRows(file){
+  parseWorkbook(file,(err,rows)=>{
+    if(err)return showToast(err.message);
+    const mapped=rows.map(r=>({
+      datetime:r["DATA/HORA"]||r["DATA"]||"",
+      driver:String(r["MOTORISTA"]||"").trim(),
+      matricula:String(r["MATRÍCULA"]??r["MATRICULA"]??"").trim(),
+      tipo:String(r["TIPO"]||r["AÇÃO"]||"").trim()
+    })).filter(x=>x.driver && x.datetime);
+    if(!mapped.length)return showToast("Não encontrei registros válidos (colunas MOTORISTA e DATA/HORA).");
+    state.pendingChecklist={rows:mapped};
+    $("checklistDetected").textContent=`${mapped.length} registros detectados no arquivo.`;
+    $("checklistSaveError").textContent="";
+    $("checklistModal").classList.remove("hidden");
+  });
+}
+
+async function confirmChecklistImport(){
+  if(!state.pendingChecklist)return;
+  const errorBox=$("checklistSaveError");
+  const button=$("confirmChecklistImport");
+  errorBox.textContent="";
+  if(!state.employees.length){
+    errorBox.textContent="Importe a planilha de funcionários antes de importar o checklist.";
+    return;
+  }
+  button.disabled=true;
+  try{
+    const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
+    const byMatricula=new Map(state.employees.filter(e=>e.matricula).map(e=>[String(e.matricula).trim(),e]));
+    const rows=state.pendingChecklist.rows.map(r=>{
+      const emp=(r.matricula&&byMatricula.get(r.matricula))||byName.get(normalize(r.driver));
+      const dateKey=toDateKey(r.datetime);
+      let tipo=normalize(r.tipo).replace("INICIO","INÍCIO");
+      if(tipo!=="INÍCIO"&&tipo!=="FIM")tipo=null;
+      return (emp&&dateKey&&tipo)?{motorista_id:emp.id,nome_motorista:r.driver,data:dateKey,tipo,data_hora:parseDateTime(r.datetime)}:null;
+    }).filter(Boolean);
+    const skipped=state.pendingChecklist.rows.length-rows.length;
+    if(!rows.length){
+      errorBox.textContent="Nenhum registro pôde ser cruzado com a base de motoristas. Confira nome/matrícula e se a coluna TIPO contém INÍCIO ou FIM.";
+      button.disabled=false;
+      return;
+    }
+    // ASSUNÇÃO: tabela "checklists" no Supabase — crie-a antes se ainda não existir (veja README/instruções).
+    for(let i=0;i<rows.length;i+=500){
+      const {error}=await db.from("checklists").insert(rows.slice(i,i+500));
+      if(error)throw error;
+    }
+    await loadChecklistData();
+    renderChecklist();
+    $("checklistModal").classList.add("hidden");
+    state.pendingChecklist=null;
+    showToast(`${rows.length} checklists salvos.${skipped?` ${skipped} registro(s) ignorado(s).`:""}`);
+  }catch(e){
+    console.error(e);
+    errorBox.textContent="Erro ao salvar no Supabase: "+e.message;
+  }finally{
+    button.disabled=false;
+  }
+}
+
+async function clearAllChecklists(){
+  if(!confirm("Isso apagará todos os checklists importados do Supabase para todos os usuários.\n\nDeseja continuar?"))return;
+  try{
+    const {error}=await db.from("checklists").delete().not("id","is",null);
+    if(error)throw error;
+    await loadChecklistData();
+    renderChecklist();
+    showToast("Checklists removidos.");
+  }catch(e){
+    console.error(e);
+    showToast("Erro ao limpar checklists: "+e.message);
+  }
+}
+
+function exportChecklistReport(){
+  const start=$("checklistStartDate").value;
+  const end=$("checklistEndDate").value;
+  const data=checklistReport(start,end);
+  if(!data.report.length)return showToast("Nenhum dado de checklist para exportar.");
+  const rows=[
+    ["#","Motorista","Matrícula","Cargo","Dias completos","Total de dias","Checklists","Meta","%","Situação"],
+    ...data.report.map((r,i)=>[i+1,r.name,r.matricula,r.cargo,r.daysCompleted,data.days.length,r.checklists,data.goal,r.percent.toFixed(1)+"%",r.status==="inside"?"Dentro da meta":"Fora da meta"])
+  ];
+  csvDownload(`relatorio_checklist_${data.start||"inicio"}_${data.end||"fim"}.csv`,rows);
 }
 
 function renderBaseCheck(){
@@ -502,14 +602,6 @@ document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",e=>{
 }));
 
 if($("applyChecklistPeriod"))$("applyChecklistPeriod").onclick=applyChecklistPeriod;
-if($("checklistStatusFilter"))$("checklistStatusFilter").onchange=renderChecklist;
-if($("checklistSearch"))$("checklistSearch").oninput=renderChecklist;
 if($("btnClearChecklist"))$("btnClearChecklist").onclick=clearAllChecklists;
-if($("exportChecklistReport"))$("exportChecklistReport").onclick=exportChecklistReport;
-if($("btnImportChecklist"))$("btnImportChecklist").onclick=()=>$("checklistFileInput").click();
-if($("checklistFileInput"))$("checklistFileInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
-if($("closeChecklistModal"))$("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-if($("cancelChecklistImport"))$("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-if($("confirmChecklistImport"))$("confirmChecklistImport").onclick=confirmChecklistImport;
 
 startApp();
