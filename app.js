@@ -145,9 +145,7 @@ function parseDateTime(v){
 
 
 async function loadChecklistData(){
-  // ASSUNÇÃO: tabela "checklists" no Supabase com colunas motorista_id, nome_motorista, data, tipo.
-  // Ajuste os nomes abaixo se sua tabela real tiver outro nome/colunas.
-  const {data,error}=await db.from("checklists").select("motorista_id,nome_motorista,data,tipo");
+  const {data,error}=await db.from("checklist_registros").select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo");
   if(error){
     console.error(error);
     state.checklistRows=[];
@@ -319,7 +317,17 @@ async function confirmChecklistImport(){
       const dateKey=toDateKey(r.datetime);
       let tipo=normalize(r.tipo).replace("INICIO","INÍCIO");
       if(tipo!=="INÍCIO"&&tipo!=="FIM")tipo=null;
-      return (emp&&dateKey&&tipo)?{motorista_id:emp.id,nome_motorista:r.driver,data:dateKey,tipo,data_hora:parseDateTime(r.datetime)}:null;
+      if(!(emp&&dateKey&&tipo))return null;
+      const horario=parseDateTime(r.datetime);
+      return {
+        motorista_id:emp.id,
+        data:dateKey,
+        tipo,
+        horario_inicial:tipo==="INÍCIO"?horario:null,
+        horario_final:tipo==="FIM"?horario:null,
+        status:null,
+        prefixo:null
+      };
     }).filter(Boolean);
     const skipped=state.pendingChecklist.rows.length-rows.length;
     if(!rows.length){
@@ -327,9 +335,8 @@ async function confirmChecklistImport(){
       button.disabled=false;
       return;
     }
-    // ASSUNÇÃO: tabela "checklists" no Supabase — crie-a antes se ainda não existir (veja README/instruções).
     for(let i=0;i<rows.length;i+=500){
-      const {error}=await db.from("checklists").insert(rows.slice(i,i+500));
+      const {error}=await db.from("checklist_registros").insert(rows.slice(i,i+500));
       if(error)throw error;
     }
     await loadChecklistData();
@@ -348,7 +355,7 @@ async function confirmChecklistImport(){
 async function clearAllChecklists(){
   if(!confirm("Isso apagará todos os checklists importados do Supabase para todos os usuários.\n\nDeseja continuar?"))return;
   try{
-    const {error}=await db.from("checklists").delete().not("id","is",null);
+    const {error}=await db.from("checklist_registros").delete().not("id","is",null);
     if(error)throw error;
     await loadChecklistData();
     renderChecklist();
