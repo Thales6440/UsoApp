@@ -75,3 +75,11 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 .login-submit{width:100%;margin-top:18px;height:39px}
 .login-error{min-height:18px;margin-top:9px;color:#c33d3d;font-size:10px}
 .app-shell.auth-hidden{display:none}
+
+.checklist-toolbar{display:flex;gap:10px;align-items:end;margin-bottom:10px;padding:12px 15px}
+.check-meta{border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-width:105px}
+.check-meta span{display:block;color:var(--muted);font-size:8px}.check-meta strong{display:block;font-size:14px;margin-top:3px}
+.checklist-stats{margin-bottom:10px}
+.check-status{font-size:8px;font-weight:700;padding:5px 7px;border-radius:999px;display:inline-block}
+.check-ok{color:#167b5c;background:#edf9f4}.check-below{color:#a56b00;background:#fff8e8}.check-zero{color:#c33d3d;background:#fff1f1}
+@media(max-width:900px){.checklist-toolbar{flex-wrap:wrap}.checklist-toolbar .field{min-width:180px}}

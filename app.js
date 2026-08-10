@@ -344,6 +344,15 @@ $("btnLogout").onclick=async()=>{
   }
 };
 
+$("btnImportChecklist").onclick=()=>$("checklistInput").click();
+$("checklistInput").onchange=e=>{if(e.target.files[0])importChecklist(e.target.files[0]);e.target.value=""};
+$("confirmChecklistImport").onclick=confirmChecklistImport;
+$("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+$("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+$("checklistMonth").onchange=renderChecklist;
+$("checklistStatusFilter").onchange=renderChecklist;
+$("checklistSearch").oninput=renderChecklist;
+$("exportChecklistReport").onclick=exportChecklistReport;
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
 $("employeesInput").onchange=e=>{if(e.target.files[0])importEmployees(e.target.files[0]);e.target.value=""};
