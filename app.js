@@ -163,15 +163,24 @@ function checklistReport(startDate,endDate){
   const start=startDate||allDates[0]||"";
   const end=endDate||allDates[allDates.length-1]||"";
 
-  const rawRows=checklistRowsFromState().filter(r=>{
+  const raw=checklistRowsFromState().filter(r=>{
     const d=String(r.data||"");
     return d && (!start||d>=start) && (!end||d<=end);
   });
 
-  const days=[...new Set(rawRows.map(r=>r.data).filter(Boolean))].sort();
+  // One checklist per type (INÍCIO/FIM) per motorista/day.
+  const unique=new Map();
+  for(const r of raw){
+    const type=normalize(r.tipo).replace("INICIO","INÍCIO");
+    if(type!=="INÍCIO" && type!=="FIM") continue;
+    const key=`${r.motorista_id||normalize(r.nome_motorista||"")}|${r.data}|${type}`;
+    if(!unique.has(key)) unique.set(key,r);
+  }
+  const rows=[...unique.values()];
+  const days=[...new Set(rows.map(r=>r.data).filter(Boolean))].sort();
   const goal=days.length*2;
-  const byDriver=new Map();
 
+  const byDriver=new Map();
   for(const e of employees){
     byDriver.set(e.id,{
       id:e.id,name:e.nome,matricula:e.matricula,cargo:e.cargo,empresa:e.empresa,
@@ -180,57 +189,29 @@ function checklistReport(startDate,endDate){
   }
 
   const byName=new Map(employees.map(e=>[normalize(e.nome),e]));
-
-  // IMPORTANT:
-  // Each driver can earn at most 2 valid checklists per day:
-  // 1 INÍCIO + 1 FIM.
-  // Repeated INÍCIO/FIM rows on the same day are ignored for the compliance score.
-  const uniqueByDriverDay=new Map();
-
-  for(const r of rawRows){
+  for(const r of rows){
     let e=r.motorista_id?employees.find(x=>x.id===r.motorista_id):null;
     if(!e) e=byName.get(normalize(r.nome_motorista||""));
     if(!e) continue;
-
-    const tipo=normalize(r.tipo).replace("INICIO","INÍCIO");
-    if(tipo!=="INÍCIO" && tipo!=="FIM") continue;
-
-    const key=`${e.id}__${r.data}`;
-    if(!uniqueByDriverDay.has(key)){
-      uniqueByDriverDay.set(key,{motorista_id:e.id,data:r.data,tipos:new Set()});
-    }
-    uniqueByDriverDay.get(key).tipos.add(tipo);
-  }
-
-  for(const item of uniqueByDriverDay.values()){
-    const g=byDriver.get(item.motorista_id);
+    const g=byDriver.get(e.id);
     if(!g) continue;
-
-    const count=Math.min(item.tipos.size,2);
-    g.checklists+=count;
-    g.days.add(item.data);
-    g.dayCounts[item.data]=count;
+    g.checklists++;
+    g.days.add(r.data);
+    g.dayCounts[r.data]=(g.dayCounts[r.data]||0)+1;
   }
 
   const report=[...byDriver.values()].map(g=>{
     const completeDays=days.filter(d=>(g.dayCounts[d]||0)>=2).length;
-    const percent=goal?pct(g.checklists,goal):0;
+    const percent=goal?Math.min(100,pct(g.checklists,goal)):0;
     const status=goal>0 && g.checklists>=goal ? "inside" : "outside";
     return {...g,daysCompleted:completeDays,percent,status,daysUsed:g.days.size};
   });
 
   report.sort((a,b)=>b.checklists-a.checklists||a.name.localeCompare(b.name,"pt-BR"));
-
-  // The dashboard should display the number of VALID checklist events,
-  // not raw duplicated spreadsheet rows.
-  const validChecklistTotal=[...uniqueByDriverDay.values()]
-    .reduce((sum,item)=>sum+Math.min(item.tipos.size,2),0);
-
-  return {start,end,days,goal,rows:rawRows,validChecklistTotal,report};
+  return {start,end,days,goal,rows,report,rawRows:raw.length};
 }
 
 function renderChecklist(){
-  const dates=checklistAvailableDates();
   const startInput=$("checklistStartDate");
   const endInput=$("checklistEndDate");
   if(!startInput||!endInput)return;
@@ -239,15 +220,17 @@ function renderChecklist(){
   if(!startInput.value)startInput.value=defaults.start;
   if(!endInput.value)endInput.value=defaults.end;
 
-  // The selected dates may be any valid period, not only dates that already have records.
-  // This is important: selecting 01/07 to 31/07 must include all launched days inside that window.
   let start=startInput.value||defaults.start;
   let end=endInput.value||defaults.end;
+  if(start && end && start>end){
+    const tmp=start;start=end;end=tmp;
+    startInput.value=start;endInput.value=end;
+  }
 
   const data=checklistReport(start,end);
   $("checklistDays").textContent=data.days.length;
   $("checklistGoal").textContent=data.goal;
-  $("checklistTotal").textContent=data.validChecklistTotal;
+  $("checklistTotal").textContent=data.rows.length;
 
   const inside=data.report.filter(r=>r.status==="inside").length;
   const outside=data.report.filter(r=>r.status==="outside").length;
@@ -277,172 +260,15 @@ function renderChecklist(){
   }).join("") || `<tr><td class="empty" colspan="8">Nenhum motorista encontrado.</td></tr>`;
 }
 
-function normalizeTimeValue(v){
-  if(v===null||v===undefined||v==="") return null;
-  if(v instanceof Date && !isNaN(v)){
-    return `${String(v.getHours()).padStart(2,"0")}:${String(v.getMinutes()).padStart(2,"0")}:${String(v.getSeconds()).padStart(2,"0")}`;
-  }
-  const s=String(v).trim();
-  const m=s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if(m)return `${String(Number(m[1])).padStart(2,"0")}:${m[2]}:${m[3]||"00"}`;
-  return null;
-}
-
-function parseChecklistRows(file){
-  parseWorkbook(file,(err,rows)=>{
-    if(err)return showToast(err.message);
-
-    const mapped=rows.map(r=>({
-      data:toDateKey(r["DATA"]),
-      tipo:normalize(r["TIPO"]).replace("INICIO","INÍCIO"),
-      horario_inicial:normalizeTimeValue(r["HORÁRIO INICIAL"]),
-      horario_final:normalizeTimeValue(r["HORÁRIO FINAL"]),
-      nome_motorista:String(r["MOTORISTA"]??"").trim(),
-      prefixo:String(r["PREFIXO"]??"").trim()||null,
-      status:String(r["STATUS CHECKLIST"]??"").trim()||null
-    })).filter(r=>r.data&&r.nome_motorista&&(r.tipo==="INÍCIO"||r.tipo==="FIM"));
-
-    if(!mapped.length)return showToast("Não encontrei registros válidos de INÍCIO/FIM na planilha.");
-    const dates=[...new Set(mapped.map(r=>r.data))].sort();
-
-    state.pendingChecklist={rows:mapped,dates};
-    $("checklistDetected").textContent=`${mapped.length} registros · ${dates.length} dia(s): ${dates.map(formatDate).join(", ")}`;
-    $("checklistModal").classList.remove("hidden");
-  });
-}
-
-async function confirmChecklistImport(){
-  if(!state.pendingChecklist)return;
-  if(!state.employees.length){
-    showToast("Importe a planilha de funcionários primeiro.");
+function applyChecklistPeriod(){
+  const start=$("checklistStartDate").value;
+  const end=$("checklistEndDate").value;
+  if(start && end && start>end){
+    showToast("A data inicial não pode ser maior que a data final.");
     return;
   }
-
-  const button=$("confirmChecklistImport");
-  const cancel=$("cancelChecklistImport");
-  const close=$("closeChecklistModal");
-  const original=button.textContent;
-
-  button.disabled=true;
-  cancel.disabled=true;
-  close.disabled=true;
-  button.textContent="Salvando...";
-  $("checklistSaveError").textContent="";
-
-  try{
-    const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
-    const mapped=state.pendingChecklist.rows.map(r=>{
-      const e=byName.get(normalize(r.nome_motorista));
-      return e?{...r,motorista_id:e.id}:null;
-    }).filter(Boolean);
-
-    const unknown=state.pendingChecklist.rows.length-mapped.length;
-    const dates=state.pendingChecklist.dates;
-
-    if(!mapped.length){
-      throw new Error("Nenhum motorista da planilha de checklist foi encontrado na base do Supabase.");
-    }
-
-    // Replace the imported dates. This makes re-importing the same file safe.
-    for(const date of dates){
-      const {error}=await db.from("checklist_registros").delete().eq("data",date);
-      if(error)throw new Error(`Falha ao limpar ${formatDate(date)}: ${error.message}`);
-    }
-
-    const records=mapped.map(r=>({
-      motorista_id:r.motorista_id,
-      data:r.data,
-      tipo:r.tipo,
-      horario_inicial:r.horario_inicial,
-      horario_final:r.horario_final,
-      status:r.status,
-      prefixo:r.prefixo
-    }));
-
-    for(let i=0;i<records.length;i+=500){
-      const batch=records.slice(i,i+500);
-      const {error}=await db.from("checklist_registros").insert(batch);
-      if(error)throw new Error(`Falha ao salvar o lote ${Math.floor(i/500)+1}: ${error.message}`);
-    }
-
-    await loadChecklistData();
-    state.pendingChecklist=null;
-    $("checklistModal").classList.add("hidden");
-    renderChecklist();
-
-    showToast(`${mapped.length} checklists salvos no Supabase. ${unknown} registros não encontrados na base.`);
-  }catch(e){
-    console.error("CHECKLIST_SAVE_ERROR",e);
-    $("checklistSaveError").textContent=e.message||"Erro desconhecido ao salvar.";
-    showToast("Não foi possível salvar o checklist.");
-  }finally{
-    button.disabled=false;
-    cancel.disabled=false;
-    close.disabled=false;
-    button.textContent=original;
-  }
-}
-
-
-async function clearAllChecklists(){
-  const total=state.checklistRows?.length||0;
-  if(!total){
-    showToast("Não há checklists salvos para limpar.");
-    return;
-  }
-
-  const confirmed=window.confirm(
-    `ATENÇÃO: isso vai apagar TODOS os checklists salvos no Supabase (${total} registros).\\n\\n`+
-    `A base de funcionários, os logs do aplicativo e o restante do histórico NÃO serão apagados.\\n\\n`+
-    `Deseja continuar?`
-  );
-  if(!confirmed)return;
-
-  const button=$("btnClearChecklist");
-  const original=button.textContent;
-  button.disabled=true;
-  button.textContent="Limpando...";
-
-  try{
-    const {error}=await db.from("checklist_registros").delete().not("id","is",null);
-    if(error)throw error;
-
-    state.checklistRows=[];
-    state.pendingChecklist=null;
-    renderChecklist();
-    showToast(`${total} registros de checklist foram apagados.`);
-  }catch(e){
-    console.error("CHECKLIST_CLEAR_ERROR",e);
-    showToast("Não foi possível limpar os checklists: "+(e.message||"erro desconhecido"));
-  }finally{
-    button.disabled=false;
-    button.textContent=original;
-  }
-}
-
-async function loadChecklistData(){
-  const {data,error}=await db.from("checklist_registros")
-    .select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo")
-    .order("data",{ascending:false});
-  if(error)throw error;
-
-  const names=new Map((state.employees||[]).map(e=>[e.id,e.nome]));
-  state.checklistRows=(data||[]).map(r=>({...r,nome_motorista:names.get(r.motorista_id)||""}));
-}
-
-function exportChecklistReport(){
-  const start=$("checklistStartDate")?.value||"";
-  const end=$("checklistEndDate")?.value||"";
-  const data=checklistReport(start,end);
-  const rows=[
-    ["Motorista","Matrícula","Cargo","Dias completos","Dias analisados","Checklists","Meta","Cumprimento","Situação"],
-    ...data.report.map(r=>[
-      r.name,r.matricula,r.cargo,r.daysCompleted,data.days.length,
-      r.checklists,data.goal,r.percent.toFixed(2)+"%",
-      r.status==="inside"?"Dentro da meta":"Fora da meta"
-    ])
-  ];
-  csvDownload(`relatorio_checklist_${start||"inicio"}_${end||"fim"}.csv`,rows);
+  renderChecklist();
+  showToast(`Período aplicado: ${formatDate(start)} a ${formatDate(end)}.`);
 }
 
 function renderBaseCheck(){
@@ -647,16 +473,12 @@ $("btnLogout").onclick=async()=>{
   }
 };
 
-if($("btnClearChecklist"))$("btnClearChecklist").onclick=clearAllChecklists;
 $("btnImportChecklist").onclick=()=>$("checklistInput").click();
 $("checklistInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
 $("confirmChecklistImport").onclick=confirmChecklistImport;
 $("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
 $("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
 $("checklistModal").onclick=e=>{if(e.target.id==="checklistModal"){e.currentTarget.classList.add("hidden");state.pendingChecklist=null}};
-$("applyChecklistPeriod").onclick=applyChecklistPeriod;
-$("checklistStartDate").onchange=()=>{};
-$("checklistEndDate").onchange=()=>{};
 $("checklistStatusFilter").onchange=renderChecklist;
 $("checklistSearch").oninput=renderChecklist;
 $("exportChecklistReport").onclick=exportChecklistReport;
@@ -678,4 +500,16 @@ document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",e=>{
   if(b.dataset.tab==="checklist") renderChecklist();
   if(b.dataset.tab==="individual") renderIndividual();
 }));
+
+if($("applyChecklistPeriod"))$("applyChecklistPeriod").onclick=applyChecklistPeriod;
+if($("checklistStatusFilter"))$("checklistStatusFilter").onchange=renderChecklist;
+if($("checklistSearch"))$("checklistSearch").oninput=renderChecklist;
+if($("btnClearChecklist"))$("btnClearChecklist").onclick=clearAllChecklists;
+if($("exportChecklistReport"))$("exportChecklistReport").onclick=exportChecklistReport;
+if($("btnImportChecklist"))$("btnImportChecklist").onclick=()=>$("checklistFileInput").click();
+if($("checklistFileInput"))$("checklistFileInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
+if($("closeChecklistModal"))$("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+if($("cancelChecklistImport"))$("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+if($("confirmChecklistImport"))$("confirmChecklistImport").onclick=confirmChecklistImport;
+
 startApp();

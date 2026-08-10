@@ -109,3 +109,7 @@ footer{display:flex;justify-content:space-between;color:#9a9da5;font-size:9px;pa
 
 #applyChecklistPeriod{min-width:125px}
 .checklist-toolbar .check-meta{min-width:115px}
+
+.modal{z-index:1000;background:rgba(15,18,24,.66)!important;backdrop-filter:blur(2px)}
+.modal-card{background:#fff!important;opacity:1!important;position:relative;z-index:1001}
+.toast{z-index:3000!important}
