@@ -17,6 +17,18 @@ const DRIVER_ROLES = new Set([
 function $(id){return document.getElementById(id)}
 function normalize(value){return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\.+$/,"").replace(/\s+/g," ").trim().toUpperCase()}
 function formatDate(d){if(!d)return"—";const [y,m,day]=d.split("-");return`${day}/${m}/${y}`}
+function rowValue(row, ...names){
+  if(!row) return "";
+  const normalized={};
+  for(const [key,value] of Object.entries(row)){
+    normalized[normalize(key)]=value;
+  }
+  for(const name of names){
+    const value=normalized[normalize(name)];
+    if(value!==undefined && value!==null && value!=="") return value;
+  }
+  return "";
+}
 function toDateKey(v){
   if(v instanceof Date&&!isNaN(v))return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
   if(typeof v==="number"&&isFinite(v)){const d=new Date(Date.UTC(1899,11,30)+Math.round(v*86400000));return isNaN(d)?"":`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;}
@@ -310,7 +322,7 @@ function combineDateTime(dateKey,timeVal){
     const value=String(timeVal).trim();
 
     // Aceita HH:MM ou HH:MM:SS
-    const mt=value.match(/^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?/);
+    const mt=value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if(!mt) return null;
 
     h=Number(mt[1]);
