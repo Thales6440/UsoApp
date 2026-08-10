@@ -5,7 +5,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const state = {
   user:null, employees:[], history:{}, selectedDate:"",
-  pendingLogs:null, pendingChecklist:null, historyChart:null, individualChart:null
+  pendingLogs:null, pendingChecklist:null, checklistRows:[], historyChart:null, individualChart:null
 };
 
 const DRIVER_ROLES = new Set([
@@ -261,6 +261,17 @@ function renderChecklist(){
   }).join("") || `<tr><td class="empty" colspan="8">Nenhum motorista encontrado.</td></tr>`;
 }
 
+function normalizeTimeValue(v){
+  if(v===null||v===undefined||v==="") return null;
+  if(v instanceof Date && !isNaN(v)){
+    return `${String(v.getHours()).padStart(2,"0")}:${String(v.getMinutes()).padStart(2,"0")}:${String(v.getSeconds()).padStart(2,"0")}`;
+  }
+  const s=String(v).trim();
+  const m=s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(m)return `${String(Number(m[1])).padStart(2,"0")}:${m[2]}:${m[3]||"00"}`;
+  return null;
+}
+
 function parseChecklistRows(file){
   parseWorkbook(file,(err,rows)=>{
     if(err)return showToast(err.message);
@@ -268,8 +279,8 @@ function parseChecklistRows(file){
     const mapped=rows.map(r=>({
       data:toDateKey(r["DATA"]),
       tipo:normalize(r["TIPO"]).replace("INICIO","INÍCIO"),
-      horario_inicial:String(r["HORÁRIO INICIAL"]??"").trim()||null,
-      horario_final:String(r["HORÁRIO FINAL"]??"").trim()||null,
+      horario_inicial:normalizeTimeValue(r["HORÁRIO INICIAL"]),
+      horario_final:normalizeTimeValue(r["HORÁRIO FINAL"]),
       nome_motorista:String(r["MOTORISTA"]??"").trim(),
       prefixo:String(r["PREFIXO"]??"").trim()||null,
       status:String(r["STATUS CHECKLIST"]??"").trim()||null
@@ -286,7 +297,21 @@ function parseChecklistRows(file){
 
 async function confirmChecklistImport(){
   if(!state.pendingChecklist)return;
-  if(!state.employees.length)return showToast("Importe a planilha de funcionários primeiro.");
+  if(!state.employees.length){
+    showToast("Importe a planilha de funcionários primeiro.");
+    return;
+  }
+
+  const button=$("confirmChecklistImport");
+  const cancel=$("cancelChecklistImport");
+  const close=$("closeChecklistModal");
+  const original=button.textContent;
+
+  button.disabled=true;
+  cancel.disabled=true;
+  close.disabled=true;
+  button.textContent="Salvando...";
+  $("checklistSaveError").textContent="";
 
   try{
     const byName=new Map(state.employees.map(e=>[normalize(e.nome),e]));
@@ -298,9 +323,14 @@ async function confirmChecklistImport(){
     const unknown=state.pendingChecklist.rows.length-mapped.length;
     const dates=state.pendingChecklist.dates;
 
+    if(!mapped.length){
+      throw new Error("Nenhum motorista da planilha de checklist foi encontrado na base do Supabase.");
+    }
+
+    // Replace the imported dates. This makes re-importing the same file safe.
     for(const date of dates){
       const {error}=await db.from("checklist_registros").delete().eq("data",date);
-      if(error)throw error;
+      if(error)throw new Error(`Falha ao limpar ${formatDate(date)}: ${error.message}`);
     }
 
     const records=mapped.map(r=>({
@@ -314,18 +344,26 @@ async function confirmChecklistImport(){
     }));
 
     for(let i=0;i<records.length;i+=500){
-      const {error}=await db.from("checklist_registros").insert(records.slice(i,i+500));
-      if(error)throw error;
+      const batch=records.slice(i,i+500);
+      const {error}=await db.from("checklist_registros").insert(batch);
+      if(error)throw new Error(`Falha ao salvar o lote ${Math.floor(i/500)+1}: ${error.message}`);
     }
 
     await loadChecklistData();
     state.pendingChecklist=null;
     $("checklistModal").classList.add("hidden");
     renderChecklist();
-    showToast(`${mapped.length} checklists salvos. ${unknown} registros não encontrados na base de motoristas.`);
+
+    showToast(`${mapped.length} checklists salvos no Supabase. ${unknown} registros não encontrados na base.`);
   }catch(e){
-    console.error(e);
-    showToast("Erro ao salvar checklists: "+e.message);
+    console.error("CHECKLIST_SAVE_ERROR",e);
+    $("checklistSaveError").textContent=e.message||"Erro desconhecido ao salvar.";
+    showToast("Não foi possível salvar o checklist.");
+  }finally{
+    button.disabled=false;
+    cancel.disabled=false;
+    close.disabled=false;
+    button.textContent=original;
   }
 }
 
