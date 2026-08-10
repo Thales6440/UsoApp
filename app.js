@@ -5,7 +5,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const state = {
   user:null, employees:[], history:{}, selectedDate:"",
-  pendingLogs:null, pendingChecklist:null, checklistRows:[], historyChart:null, individualChart:null
+  pendingLogs:null, pendingChecklist:null, historyChart:null, individualChart:null
 };
 
 const DRIVER_ROLES = new Set([
@@ -148,14 +148,24 @@ function checklistRowsFromState(){
   return state.checklistRows || [];
 }
 
-function checklistMonths(){
-  const months=new Set(checklistRowsFromState().map(r=>String(r.data||"").slice(0,7)).filter(Boolean));
-  return [...months].sort().reverse();
+function checklistAvailableDates(){
+  return [...new Set(checklistRowsFromState().map(r=>String(r.data||"")).filter(Boolean))].sort();
 }
 
-function checklistReport(month){
+function checklistDefaultRange(){
+  const dates=checklistAvailableDates();
+  return {start:dates[0]||"",end:dates[dates.length-1]||""};
+}
+
+function checklistReport(startDate,endDate){
   const employees=state.employees||[];
-  const rows=checklistRowsFromState().filter(r=>!month || String(r.data).slice(0,7)===month);
+  const allDates=checklistAvailableDates();
+  const start=startDate||allDates[0]||"";
+  const end=endDate||allDates[allDates.length-1]||"";
+  const rows=checklistRowsFromState().filter(r=>{
+    const d=String(r.data||"");
+    return d && (!start||d>=start) && (!end||d<=end);
+  });
   const days=[...new Set(rows.map(r=>r.data).filter(Boolean))].sort();
   const goal=days.length*2;
   const byDriver=new Map();
@@ -182,43 +192,51 @@ function checklistReport(month){
   const report=[...byDriver.values()].map(g=>{
     const completeDays=days.filter(d=>(g.dayCounts[d]||0)>=2).length;
     const percent=goal?pct(g.checklists,goal):0;
-    let status="zero";
-    if(g.checklists>=goal && goal>0) status="ok";
-    else if(g.checklists>0) status="below";
+    // Only two groups: at/above the target = inside; below = outside.
+    const status=goal>0 && g.checklists>=goal ? "inside" : "outside";
     return {...g,daysCompleted:completeDays,percent,status,daysUsed:g.days.size};
   });
 
   report.sort((a,b)=>b.checklists-a.checklists||a.name.localeCompare(b.name,"pt-BR"));
-  return {month,days,goal,rows,report};
+  return {start,end,days,goal,rows,report};
 }
 
 function renderChecklist(){
-  const months=checklistMonths();
-  const select=$("checklistMonth");
-  if(!select) return;
+  const dates=checklistAvailableDates();
+  const startInput=$("checklistStartDate");
+  const endInput=$("checklistEndDate");
+  if(!startInput||!endInput)return;
 
-  const previous=select.value;
-  select.innerHTML=`<option value="">Todos os meses</option>`+
-    months.map(m=>`<option value="${m}">${m.slice(5,7)}/${m.slice(0,4)}</option>`).join("");
-  if(months.includes(previous)) select.value=previous;
-  else if(months.length) select.value=months[0];
+  const defaults=checklistDefaultRange();
+  if(!startInput.value)startInput.value=defaults.start;
+  if(!endInput.value)endInput.value=defaults.end;
 
-  const month=select.value||"";
-  const data=checklistReport(month);
+  // Keep selected dates valid when a new file is imported.
+  if(startInput.value && dates.length && !dates.includes(startInput.value)){
+    const first=dates.find(d=>d>=startInput.value)||dates[0];
+    startInput.value=first;
+  }
+  if(endInput.value && dates.length && !dates.includes(endInput.value)){
+    const last=[...dates].reverse().find(d=>d<=endInput.value)||dates[dates.length-1];
+    endInput.value=last;
+  }
 
+  let start=startInput.value||defaults.start;
+  let end=endInput.value||defaults.end;
+  if(start && end && start>end){
+    const tmp=start;start=end;end=tmp;
+    startInput.value=start;endInput.value=end;
+  }
+
+  const data=checklistReport(start,end);
   $("checklistDays").textContent=data.days.length;
   $("checklistGoal").textContent=data.goal;
   $("checklistTotal").textContent=data.rows.length;
 
-  const onTarget=data.report.filter(r=>r.status==="ok").length;
-  const below=data.report.filter(r=>r.status==="below").length;
-  const zero=data.report.filter(r=>r.status==="zero").length;
-  const avg=data.report.length?data.report.reduce((s,r)=>s+r.percent,0)/data.report.length:0;
-
-  $("checklistOnTarget").textContent=onTarget;
-  $("checklistBelowTarget").textContent=below;
-  $("checklistZero").textContent=zero;
-  $("checklistAverage").textContent=`${avg.toFixed(1)}%`;
+  const inside=data.report.filter(r=>r.status==="inside").length;
+  const outside=data.report.filter(r=>r.status==="outside").length;
+  $("checklistOnTarget").textContent=inside;
+  $("checklistOutsideTarget").textContent=outside;
 
   const filter=$("checklistStatusFilter")?.value||"all";
   const search=normalize($("checklistSearch")?.value||"");
@@ -229,7 +247,7 @@ function renderChecklist(){
   });
 
   $("checklistBody").innerHTML=visible.map((r,i)=>{
-    const label=r.status==="ok"?"Dentro da meta":r.status==="zero"?"Sem checklist":"Abaixo da meta";
+    const label=r.status==="inside"?"Dentro da meta":"Fora da meta";
     return `<tr>
       <td>${i+1}</td>
       <td><strong>${esc(r.name)}</strong></td>
@@ -238,7 +256,7 @@ function renderChecklist(){
       <td><strong>${r.checklists}</strong></td>
       <td>${data.goal}</td>
       <td>${r.percent.toFixed(1)}%</td>
-      <td><span class="status ${r.status==="ok"?"used":r.status==="zero"?"unused":"warning"}">${label}</span></td>
+      <td><span class="status ${r.status==="inside"?"used":"unused"}">${label}</span></td>
     </tr>`;
   }).join("") || `<tr><td class="empty" colspan="8">Nenhum motorista encontrado.</td></tr>`;
 }
@@ -300,15 +318,7 @@ async function confirmChecklistImport(){
       if(error)throw error;
     }
 
-    const {data,error}=await db.from("checklist_registros")
-      .select("id,motorista_id,data,tipo,horario_inicial,horario_final,status,prefixo");
-    if(error)throw error;
-
-    state.checklistRows=(data||[]).map(r=>({
-      ...r,
-      nome_motorista:(state.employees.find(e=>e.id===r.motorista_id)||{}).nome||""
-    }));
-
+    await loadChecklistData();
     state.pendingChecklist=null;
     $("checklistModal").classList.add("hidden");
     renderChecklist();
@@ -330,17 +340,18 @@ async function loadChecklistData(){
 }
 
 function exportChecklistReport(){
-  const month=$("checklistMonth")?.value||"";
-  const data=checklistReport(month);
+  const start=$("checklistStartDate")?.value||"";
+  const end=$("checklistEndDate")?.value||"";
+  const data=checklistReport(start,end);
   const rows=[
     ["Motorista","Matrícula","Cargo","Dias completos","Dias analisados","Checklists","Meta","Cumprimento","Situação"],
     ...data.report.map(r=>[
       r.name,r.matricula,r.cargo,r.daysCompleted,data.days.length,
       r.checklists,data.goal,r.percent.toFixed(2)+"%",
-      r.status==="ok"?"Dentro da meta":r.status==="zero"?"Sem checklist":"Abaixo da meta"
+      r.status==="inside"?"Dentro da meta":"Fora da meta"
     ])
   ];
-  csvDownload(`relatorio_checklist_${month||"todos"}.csv`,rows);
+  csvDownload(`relatorio_checklist_${start||"inicio"}_${end||"fim"}.csv`,rows);
 }
 
 function renderBaseCheck(){
@@ -545,24 +556,17 @@ $("btnLogout").onclick=async()=>{
   }
 };
 
-const checklistImportBtn=$("btnImportChecklist");
-if(checklistImportBtn) checklistImportBtn.onclick=()=>$("checklistInput").click();
-const checklistInput=$("checklistInput");
-if(checklistInput) checklistInput.onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
-const confirmChecklistBtn=$("confirmChecklistImport");
-if(confirmChecklistBtn) confirmChecklistBtn.onclick=confirmChecklistImport;
-const cancelChecklistBtn=$("cancelChecklistImport");
-if(cancelChecklistBtn) cancelChecklistBtn.onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-const closeChecklistBtn=$("closeChecklistModal");
-if(closeChecklistBtn) closeChecklistBtn.onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
-const checklistMonth=$("checklistMonth");
-if(checklistMonth) checklistMonth.onchange=renderChecklist;
-const checklistStatusFilter=$("checklistStatusFilter");
-if(checklistStatusFilter) checklistStatusFilter.onchange=renderChecklist;
-const checklistSearch=$("checklistSearch");
-if(checklistSearch) checklistSearch.oninput=renderChecklist;
-const exportChecklistBtn=$("exportChecklistReport");
-if(exportChecklistBtn) exportChecklistBtn.onclick=exportChecklistReport;
+$("btnImportChecklist").onclick=()=>$("checklistInput").click();
+$("checklistInput").onchange=e=>{if(e.target.files[0])parseChecklistRows(e.target.files[0]);e.target.value=""};
+$("confirmChecklistImport").onclick=confirmChecklistImport;
+$("cancelChecklistImport").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+$("closeChecklistModal").onclick=()=>{$("checklistModal").classList.add("hidden");state.pendingChecklist=null};
+$("checklistModal").onclick=e=>{if(e.target.id==="checklistModal"){e.currentTarget.classList.add("hidden");state.pendingChecklist=null}};
+$("checklistStartDate").onchange=renderChecklist;
+$("checklistEndDate").onchange=renderChecklist;
+$("checklistStatusFilter").onchange=renderChecklist;
+$("checklistSearch").oninput=renderChecklist;
+$("exportChecklistReport").onclick=exportChecklistReport;
 $("btnImportEmployees").onclick=()=>$("employeesInput").click();
 $("btnImportLogs").onclick=()=>$("logsInput").click();
 $("employeesInput").onchange=e=>{if(e.target.files[0])importEmployees(e.target.files[0]);e.target.value=""};

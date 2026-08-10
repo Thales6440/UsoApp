@@ -292,9 +292,13 @@
       
       <section class="tab-panel" id="panel-checklist">
         <div class="checklist-toolbar card">
-          <div class="field grow">
-            <label>Mês analisado</label>
-            <select id="checklistMonth"></select>
+          <div class="field">
+            <label>Data inicial</label>
+            <input id="checklistStartDate" type="date">
+          </div>
+          <div class="field">
+            <label>Data final</label>
+            <input id="checklistEndDate" type="date">
           </div>
           <div class="check-meta">
             <span>Dias lançados</span><strong id="checklistDays">—</strong>
@@ -305,29 +309,19 @@
           <div class="check-meta">
             <span>Checklists lançados</span><strong id="checklistTotal">—</strong>
           </div>
-          <button class="btn btn-soft" id="exportChecklistReport">Exportar relatório</button>
+          <button type="button" class="btn btn-soft" id="exportChecklistReport">Exportar relatório</button>
         </div>
 
         <div class="stats-grid checklist-stats">
           <article class="stat-card">
             <div class="stat-label">Dentro da meta <span>✓</span></div>
             <div class="stat-value" id="checklistOnTarget">—</div>
-            <div class="stat-meta">2 checklists por dia</div>
+            <div class="stat-meta">100% ou mais da meta</div>
           </article>
           <article class="stat-card">
-            <div class="stat-label">Abaixo da meta <span>!</span></div>
-            <div class="stat-value" id="checklistBelowTarget">—</div>
-            <div class="stat-meta">Precisam de acompanhamento</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-label">Sem checklist <span>×</span></div>
-            <div class="stat-value" id="checklistZero">—</div>
-            <div class="stat-meta">Nenhum registro no período</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-label">Cumprimento médio <span>↗</span></div>
-            <div class="stat-value" id="checklistAverage">—</div>
-            <div class="stat-meta">Média sobre os 380 motoristas</div>
+            <div class="stat-label">Fora da meta <span>!</span></div>
+            <div class="stat-value" id="checklistOutsideTarget">—</div>
+            <div class="stat-meta">Abaixo de 100%</div>
           </article>
         </div>
 
@@ -335,14 +329,13 @@
           <div class="card-title">
             <div>
               <h2>Relatório de checklists por motorista</h2>
-              <span>Meta = 2 checklists × quantidade de dias lançados no mês</span>
+              <span>Meta = 2 checklists × quantidade de dias lançados no período</span>
             </div>
             <div class="mini-filters">
               <select id="checklistStatusFilter">
                 <option value="all">Todos</option>
-                <option value="ok">Dentro da meta</option>
-                <option value="below">Abaixo da meta</option>
-                <option value="zero">Sem checklist</option>
+                <option value="inside">Dentro da meta</option>
+                <option value="outside">Fora da meta</option>
               </select>
               <input id="checklistSearch" type="search" placeholder="Buscar motorista...">
             </div>
@@ -399,11 +392,23 @@
   <div class="toast hidden" id="toast"></div>
 
 
-  <div class="modal hidden" id="checklistModal">
-    <div class="modal-card">
-      <div class="modal-head"><div><strong>Importar checklists</strong><span id="checklistDetected">—</span></div><button class="icon-btn" id="closeChecklistModal">×</button></div>
-      <p class="modal-help">O sistema contará INÍCIO e FIM como dois checklists distintos. Os registros são cruzados com a base de motoristas pela matrícula/nome cadastrado.</p>
-      <div class="modal-actions"><button class="btn btn-ghost" id="cancelChecklistImport">Cancelar</button><button class="btn btn-primary" id="confirmChecklistImport">Salvar no Supabase</button></div>
+  <div class="modal hidden checklist-modal" id="checklistModal">
+    <div class="modal-card checklist-modal-card">
+      <div class="modal-head">
+        <div>
+          <strong>Importar checklists</strong>
+          <span id="checklistDetected">—</span>
+        </div>
+        <button type="button" class="icon-btn" id="closeChecklistModal" aria-label="Fechar">×</button>
+      </div>
+      <p class="modal-help">
+        O sistema contará <strong>INÍCIO</strong> e <strong>FIM</strong> como dois checklists distintos.
+        Os registros serão cruzados com a base de motoristas pela matrícula/nome cadastrado.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancelChecklistImport">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="confirmChecklistImport">Salvar no Supabase</button>
+      </div>
     </div>
   </div>
 
@@ -411,6 +416,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="app.js"></script>
+  </div>
 
 </body>
 </html>
